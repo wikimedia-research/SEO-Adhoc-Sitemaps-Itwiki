@@ -1,0 +1,32 @@
+---
+title: Impact of sitemaps on traffic to Italian Wikipedia from search engines
+author: Mikhail Popov
+date: "`r sub('^0(\\d)', '\\1', format(Sys.Date(), '%d %B %Y'))`"
+abstract: |
+  ...executive summary...
+output:
+  wmfpar::pdf_report:
+    short_title: Italian Wikipedia sitemap impact
+    watermark: "First Draft"
+    cite_r_packages:
+      # Presenation:
+      - kableExtra
+      # Data workflow:
+      - magrittr
+      - dplyr
+      - tidyr
+      - purrr
+      # Data visualization:
+      - ggplot2
+nocite: '@*'
+---
+
+# Introduction
+
+...test...
+
+\newpage
+
+# References
+
+\footnotesize
