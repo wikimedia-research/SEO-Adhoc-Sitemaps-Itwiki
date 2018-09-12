@@ -19,7 +19,7 @@ parameters {
   real<lower = -1, upper = 1> phi[p];   // AR(p) coefficients
   real<lower = -1, upper = 1> theta[q]; // MA(q) coefficients
   vector[K] beta;                       // coefficients for predictors
-  real<lower = 0> lambda;               // Gompertz growth rate
+  real<lower = 0, upper = 5> lambda;    // Gompertz growth rate
   real<lower = 1> d;                    // Gompertz displacement along t
 }
 model {
@@ -31,7 +31,7 @@ model {
   beta ~ normal(0, 10);
   phi ~ cauchy(0, 1);
   theta ~ cauchy(0, 1);
-  lambda ~ cauchy(0, 5);
+  lambda ~ normal(0, 2);
   d ~ normal(7, 5);
   // likelihood
   for (t in 1:max(p, q)) {
