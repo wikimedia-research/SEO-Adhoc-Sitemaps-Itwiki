@@ -3,29 +3,322 @@ title: Impact of sitemaps on traffic to Italian Wikipedia from search engines
 author: Mikhail Popov
 date: "`r sub('^0(\\d)', '\\1', format(Sys.Date(), '%d %B %Y'))`"
 abstract: |
-  ...executive summary...
+  On 10 August 2018, the Wikimedia Performance Team deployed sitemaps for the Italian Wikipedia. We used Bayesian time series intervention analysis to answer the question of "Did the sitemaps have a positive effect on search engine-referred pageviews?"
 output:
   wmfpar::pdf_report:
-    short_title: Italian Wikipedia sitemap impact
+    short_title: Italian Wikipedia sitemap impact (T202643)
     watermark: "First Draft"
     cite_r_packages:
       # Presenation:
       - kableExtra
       # Data workflow:
       - magrittr
+      - glue
       - dplyr
       - tidyr
       - purrr
+      - broom
+      - readr
       # Data visualization:
       - ggplot2
+      - patchwork
+      # Modeling
+      - stats # arima()
+      - rstan
+      - bridgesampling
+      # Misc.
+      - wmf
+    extra_bibs:
+      - references.bib
 nocite: '@*'
 ---
+```{r setup, include=FALSE}
+library(knitr); library(kableExtra)
+opts_chunk$set(
+  echo = FALSE, message = FALSE, warning = FALSE,
+  dev = "png", dpi = 600
+)
+options(knitr.table.format = "latex", scipen = 500, digits = 4)
+library(ggplot2)
+library(patchwork)
+library(zeallot)
+```
 
 # Introduction
 
-...test...
+For a few days in July 2018, all traffic that went to the Italian Wikipedia was redirected (via JavaScript) to a [page protesting potential copyright changes in the European Union](https://it.wikipedia.org/wiki/Wikipedia:Comunicato_3_luglio_2018/en); refer to [Hershenov [-@hershenov_2018]](https://blog.wikimedia.org/2018/06/29/eu-copyright-proposal-will-hurt-web-wikipedia/) for more information. After the redirect ended, it was observed that there was still a non-negligible amount of traffic going to the redirect page (see [T199252](https://phabricator.wikimedia.org/T199252)), with almost a million pageviews on July 11th, a full six days after the redirect was turned off. In an attempt to fix the problem while also implementing a recommendation from our SEO consultation with Go Fish Digital ([T198965](https://phabricator.wikimedia.org/T198965)), the Wikimedia Performance team created [sitemaps](https://en.wikipedia.org/wiki/Sitemaps) for the Italian Wikipedia and deployed them on 10 August 2018.
 
-\newpage
+In this report, we used Bayesian time series intervention analysis to determine whether the deployment of the sitemaps had a positive impact on search engine-referred traffic to the Italian Wikipedia, as measured by [pageviews](https://meta.wikimedia.org/wiki/Research:Page_view). Our statistical model of search engine-referred traffic employed an [autoregressive moving average model](https://en.wikipedia.org/wiki/Autoregressive%E2%80%93moving-average_model) for the time series with the change-due-to-intervention modeled as a gradually ramping-up, gradually levelling-off S-shaped curve -- which enabled us to infer the effect of sitemaps' deployment while accounting for time it took search engines to ingest the sitemaps and update their indices.
+
+```{r data, include=FALSE}
+source("data.R")
+source("summarizing.R")
+itwiki_pageviews <- itwiki_pvs %>%
+  dplyr::select(-day) %>%
+  tidyr::gather(access_method, pageviews, both, desktop, `mobile web`)
+```
+
+\clearpage
+
+```{r datavis_ts, fig.height=6, fig.width=10, fig.cap="The negative trend of the slowly decreasing desktop traffic cancels out the positive trend of the slowly increasing mobile (web) traffic, with the overall search engine traffic around 8 million pageviews per day."}
+p1 <- ggplot(
+  dplyr::filter(itwiki_pageviews, access_method == "both"),
+  aes(x = date, y = pageviews)
+) +
+  geom_line() +
+  geom_vline(
+    aes(xintercept = date), linetype = "dashed",
+    data = dplyr::filter(events, event == "sitemap deployment")
+  ) +
+  scale_color_brewer(palette = "Set1") +
+  scale_x_date(date_breaks = "6 months", date_minor_breaks = "1 month") +
+  labs(
+    x = "Date", y = "Pageviews (in millions)",
+    title = "Search engine traffic to the Italian Wikipedia"
+  ) +
+  wmf::theme_min(14)
+p2 <- ggplot(
+  dplyr::filter(itwiki_pageviews, access_method != "both"),
+  aes(x = date, y = pageviews, color = access_method)
+) +
+  geom_line() +
+  geom_vline(
+    aes(xintercept = date), linetype = "dashed",
+    data = dplyr::filter(events, event == "sitemap deployment")
+  ) +
+  scale_color_brewer(palette = "Set1") +
+  scale_x_date(date_breaks = "6 months", date_minor_breaks = "1 month") +
+  labs(
+    x = "Date", y = "Pageviews (in millions)", color = "Access method",
+    title = "Search engine traffic to the Italian Wikipedia, by access method"
+  ) +
+  wmf::theme_min(14)
+p1 + p2 + plot_layout(ncol = 1)
+```
+
+```{r dataviz_monthly_seasonality, fig.width=8, fig.height=4, fig.cap="Every year the Italian Wikipedia has a similar pattern of search engine traffic across months, which indicated to us that months should be included in the model."}
+ggplot(
+  dplyr::filter(itwiki_pageviews, access_method == "both", date < "2018-09-01"),
+  aes(x = month, y = pageviews, group = year, color = year)
+) +
+  stat_summary(fun.y = sum, geom = "line", size = 1.1) +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    x = "Month", y = "Pageviews (in millions)", color = "Year",
+    title = "Search engine traffic to the Italian Wikipedia, by year/month"
+  ) +
+  wmf::theme_min(14)
+```
+
+\clearpage
+
+# Methods
+
+We tried a variety of [autoregressive (AR) models](https://en.wikipedia.org/wiki/Autoregressive_model) in different configurations and with different numbers of AR terms -- up to AR(3) -- with the following exclusions/inclusions:
+
+- [moving average (MA) component](https://en.wikipedia.org/wiki/Moving-average_model), up to MA(3)
+- weekdays, [Italian holiday](https://en.wikipedia.org/wiki/Public_holidays_in_Italy) indicators, and months as regressors -- for a total of $(7-1)+1+(12-1) = 18$ predictor variables in the regression component
+- effect $\delta_0$ of intervention at time $T$ as an immediate, constant change $z_t = \delta_0 I_t$
+- effect $\delta_0$ of intervention at time $T$ as a gradually levelling-off change: $z_t = \omega_1 z_{t-1} + \delta_0 I_t$
+- effect $\delta_0$ of intervention at time $T$ as a ramping-up, then gradually levelling-off ("S"-shaped) [Gompertz function](https://en.wikipedia.org/wiki/Gompertz_function) change:
+
+\begin{equation}
+  z_t = \delta_0 \mathrm{e}^{-d \mathrm{e}^{-\lambda (t - T)}} I_t
+\end{equation}
+
+with indicator $I_t = 1$ for $t >= T$ and $I_t = 0$ otherwise in all cases. The $I_t$ is to ensure $z_t = 0$ when $t < T$. It may be helpful to visualize those three possible models of change-due-to-intervention. Suppose the observed data covers 20 days and that the intervention occurred on day 5:
+
+```{r dataviz_change_comparison, fig.width=12, fig.height=4, fig.cap="These three models show how the same intervention effect can express itself in multiple ways, with the Gompertz model being more likely in our case because of the time it takes for search engines like Google to ingest the sitemap and update their index."}
+c(N, T, delta0, omega1, lambda, d) %<-% c(20, 5, 1, 0.6, 0.5, 7)
+z <- dplyr::bind_rows(list(
+  A = data.frame(t = T:N, z = delta0),
+  B = data.frame(t = T:N, z = delta0 * (1 - (omega1 ^ ((T:N) - T + 1))) / (1 - omega1)),
+  C = data.frame(t = T:N, z = delta0 * exp(-d * exp(-lambda * ((T:N) - T))))
+), .id = "change model") %>%
+  dplyr::mutate(`change model` = factor(`change model`, c("A", "B", "C"), c("instant, constant", "gradually levelling-off", "Gompertz")))
+ggplot(z, aes(x = t, y = z)) +
+  geom_line(color = "red") +
+  geom_vline(xintercept = T, linetype = "dashed") +
+  facet_wrap(~ `change model`, ncol = 3) +
+  geom_line(data = data.frame(t = 1:T, z = 0), color = "black") +
+  wmf::theme_facet(14) +
+  labs(
+    y = expression(z[t]), x = "t", color = "Change applied to time series",
+    title = expression("Models of change-due-to-intervention"~z[t]~at~T==10~"with effect"~delta[0]==1),
+    subtitle = expression(
+      omega[1]==0.6~"in gradual model"~z[t]==omega[1]*z[t-1]+delta[0]*I[t]~", and "~lambda==0.5~"in Gompertz model"~z[t]==delta[0]*e^(-7*e^(-lambda*(t-T)))
+    )
+  )
+```
+
+Each model was specified in the [Stan](https://en.wikipedia.org/wiki/Stan_(software)) probabilistic programming language [@JSSv076i01] and fit in the statistical software and programming language [R](https://en.wikipedia.org/wiki/R_(programming_language)) [@base] using the **RStan** interface [@rstan] and [Markov chain Monte Carlo (MCMC)](https://en.wikipedia.org/wiki/Markov_chain_Monte_Carlo).
+
+\clearpage
+
+For model comparison, we used **bridgesampling** R package by Gronau et al. [-@2017arXiv171008162G] to calculate the log marginal likelihood and posterior probability of each model. Then we used the same package to calculate the Bayes factor of the top candidates and interpreted it within the Kass and Raftery framework [-@doi:10.1080/01621459.1995.10476572] to select the best one:
+
+```{r marginal_likelihoods}
+if (file.exists(here("fit_index.tsv"))) fits <- readr::read_tsv(here("fit_index.tsv")) else
+  if (file.exists(here("fit_index.csv"))) fits <- readr::read_csv(here("fit_index.csv"))
+refine_hpd <- function(hpd_summary) {
+  refined <- hpd_summary %>%
+    dplyr::mutate(
+      est = sprintf("%.3f (%.3f)", estimate, std.error),
+      ci95 = sprintf("(%.3f, %.3f)", conf.low, conf.high)
+    ) %>%
+    dplyr::select(Model = model, est, ci95)
+  return(refined)
+}
+delta0_hpd <- readr::read_csv(here("results", "delta0_hpd.csv")) %>% refine_hpd
+omega1_hpd <- readr::read_csv(here("results", "omega1_hpd.csv")) %>% refine_hpd
+lambda_hpd <- readr::read_csv(here("results", "lambda_hpd.csv")) %>%
+  dplyr::filter(term == "lambda") %>% refine_hpd %>%
+  dplyr::bind_rows(omega1_hpd)
+prior_probs <- function(model_names, opinionated) {
+  if (opinionated) {
+    unnormalized <- purrr::map_dbl(model_names, function(model_name) {
+      prior_prob <- 0.5
+      if (grepl("regressors", model_name)) prior_prob <- prior_prob + 0.2
+      if (grepl("Gompertz", model_name)) prior_prob <- prior_prob + 0.1
+      return(prior_prob)
+    })
+  } else {
+    unnormalized <- rep(0.5, length(model_names))
+  }
+  normalized <- unnormalized / sum(unnormalized)
+  return(normalized)
+}
+marginal_likelihoods <- set_names(as.list(fits$lml_path), fits$model) %>%
+  purrr::map(readr::read_rds) %>%
+  purrr::map_df(~ dplyr::data_frame(logL = .x$logml), .id = "Model") %>%
+  dplyr::mutate(
+    post_prob = bridgesampling::post_prob(logL, prior_prob = prior_probs(Model, opinionated = FALSE)),
+    logL = dplyr::if_else(logL < -500, "< -500", sprintf("%.2f", logL))
+  )
+marginal_likelihoods %>%
+  dplyr::mutate(post_prob = sprintf("%.3f%%", 100 * post_prob)) %>%
+  dplyr::left_join(delta0_hpd, by = "Model") %>%
+  dplyr::left_join(lambda_hpd, by = "Model") %>%
+  dplyr::mutate_all(dplyr::funs(replace(., is.na(.), "--"))) %>%
+  dplyr::mutate(
+    change = factor(dplyr::case_when(
+      grepl("instant", Model) ~ 1,
+      grepl("levelling-off", Model, fixed = TRUE) ~ 2,
+      grepl("Gompertz", Model) ~ 3
+    ), 1:3, c("Instant, constant", "Gradual level-off", "Gompertz function")),
+    regression = factor(grepl("regressors", Model), c(FALSE, TRUE), c("No", "Yes")),
+    Model = sub("w\\/.*", "", Model),
+  ) %>%
+  dplyr::select(Model, change, regression, logL, post_prob, dplyr::everything()) %>%
+  dplyr::arrange(Model, change, regression) %>%
+  kable(
+    align = c("l", "l", "l", "r", "r", "r", "c", "r", "c"), booktabs = TRUE,
+    col.names = c("TS Model", "Change Model", "Regression", "log L", "Pr(Model)", "Est (SE)", "95% CI", "Est (SE)", "95% CI"),
+    caption = "Comparison metrics -- log marginal likelihood and posterior model probability (probability of model given data) -- of various models explored, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$ and gradation parameters $\\omega_1$ (for gradual levelling-off) and $\\lambda$ (for Gompertz) where applicable. \\textit{Instant} means the change was modeled as instant and constant, while \\textit{gradual} means the change was modeled as gradual and levelling-off."
+  ) %>%
+  kable_styling(latex_options = c("striped", "scale_down")) %>%
+  add_header_above(c(
+    "Model Specification" = 3, "Model Metrics" = 2,
+    "Intervention Effect" = 2, "Gradation ($\\\\omega_1$ or $\\\\lambda$)" = 2
+  ), escape = FALSE)
+```
+
+The final model of search engine traffic $y_t$ (measured as millions of pageviews) is ARMA(2,2) with overall mean $\mu$, Normally-distributed noise $\epsilon_t$ (having standard deviation $\sigma$), regressors $\mathbf{x}$, and a Gompertz model of change-due-to-intervention $z_t$ (Eq. 1):
+
+\begin{align*}
+y_t & = \mu + \sum_p \phi_p y_{t - p} + \sum_q \theta_q \epsilon_{t - q} + \sum_k \beta_k x_{t,k} + z_t + \epsilon_t;\\
+z_t & = \delta_0 \mathrm{e}^{-d \mathrm{e}^{-\lambda (t - T)}} I_t,
+\end{align*}
+
+where $T$ marks the deployment of the sitemaps and $I_t = 1$ for $t \geq T$ (and 0 otherwise) as before. The underlying intervention effect of interest $\delta_0$ is inferred using [Bayesian inference](https://en.wikipedia.org/wiki/Bayesian_inference). The model's parameters had the following [priors](https://en.wikipedia.org/wiki/Prior_probability):
+
+\begin{align*}
+  \phi_p, \theta_q & \sim \text{Cauchy}(0, 1),~-1 \leq \phi_p, \theta_q \leq 1, p = 1, 2, q = 1, 2;\\
+  \sigma & \sim \text{Cauchy}(0, 5),~\sigma > 0;\\
+  \delta_0, \beta_k & \sim \mathcal{N}(0, 10),~k = 1, \ldots, 18;\\
+  \mu & \sim \mathcal{N}(8, 4);\\
+  d & \sim \mathcal{N}(7, 5);~\text{and}\\
+  \lambda & \sim \mathcal{N}(0, 2),~0 < \lambda < 5.
+\end{align*}
+
+Some of the priors are very informative, and the following is our reasoning:
+
+- on average the Italian Wikipedia gets 8 million search engine-referred pageviews, so we centered the mean $\mu$ at 8 ($y_t$ is in millions),
+- it takes time for Google and other search engines to ingest the newly deployed sitemaps and update their indices, so we're centering the Normal prior on $d$ at 7 (days),
+- based on our exploration of different values of $\lambda$, we assign it higher probability at 0-3 with a $\mathcal{N}(0, 2)$ prior and restrict it to 5 (which is very steep -- indicating near-immediate change -- and much less likely).
+
+# Results
+
+```{r final_fit}
+best_model <- marginal_likelihoods$Model[which.max(marginal_likelihoods$post_prob)]
+final_fit <- readr::read_rds(fits$fit_path[fits$model == best_model])
+```
+
+The results presented here are from the model with the highest posterior probability of model given the data (`r best_model`) with the estimates and intervals in Table 2 based on MCMC samples from the [posterior distribution](https://en.wikipedia.org/wiki/Posterior_probability) of parameters given data.
+
+```{r dataviz_predictions, fig.height=4.5, fig.width=9, fig.cap="To show the quality of the final model as an explanation of the data, we generated predictions of pageviews for each day to see how the predicted pageview counts matched with observed pageview counts. Most of the time, the actual counts are close to the point estimates or are at least within the prediction interval."}
+final_fit %>%
+  posterior_predictive_plot(
+    title = "Model-predicted search engine traffic",
+    subtitle = best_model
+  ) +
+  scale_y_continuous(limits = c(0, 15)) +
+  scale_x_date(
+    limits = as.Date(c("2018-06-01", "2018-09-12")),
+    date_labels = "%d %b", date_breaks = "2 weeks", date_minor_breaks = "1 week"
+  ) +
+  coord_cartesian(ylim = c(0, 15)) +
+  geom_vline(
+    aes(xintercept = date), linetype = "dashed",
+    data = dplyr::filter(events, event == "sitemap deployment")
+  ) +
+  labs(caption = "Actual traffic displayed in black, predictions (estimates and 95% confidence intervals) in red")
+```
+
+```{r posterior_samples}
+posterior_samples <- broom::tidyMCMC(final_fit, pars = c("delta0", "z"), estimate.method = "median", conf.int = TRUE, conf.method = "HPDinterval", conf.level = 0.95)
+compress <- function(x, ...) {
+  y <- polloi::compress(abs(x, ...))
+  return(paste0(ifelse(x < 0, "-", ""), y))
+}
+posterior_samples %>%
+  dplyr::filter(term == "delta0") %>%
+  dplyr::mutate(
+    estimate = sprintf("%s (%s)", compress(1e6 * estimate), compress(1e6 * std.error)),
+    ci95 = sprintf("(%s, %s)", compress(1e6 * conf.low), compress(1e6 * conf.high))
+  ) %>%
+  dplyr::select(estimate, ci95) %>%
+  kable(
+    booktabs = TRUE, col.names = c("Point Estimate (Standard Error)", "95% Highest Density Interval"),
+    caption = "Estimates effect of sitemaps on daily search engine-referred pageviews. The estimate is the median calculated from MCMC samples drawn from the posterior distribution of $\\delta$. The Highest Density Interval (HDI) contains values such that all values within the interval have a higher probability than points outside the interval."
+  ) %>%
+  kable_styling()
+```
+
+```{r dataviz_change, fig.height=5, fig.width=10, fig.cap="According to the final model, approximately 150K pageviews per day can be attributed to the deployment of sitemaps alone."}
+posterior_samples %>%
+  dplyr::filter(grepl("^z", term)) %>%
+  dplyr::mutate(date = itwiki_pvs$date) %>%
+  ggplot(aes(x = date)) +
+  geom_ribbon(aes(ymin = 1e6 * conf.low, ymax = 1e6 * conf.high), alpha = 0.25) +
+  geom_line(aes(y = 1e6 * estimate), size = 1.2) +
+  geom_vline(
+    aes(xintercept = date), linetype = "dashed",
+    data = dplyr::filter(events, event == "sitemap deployment")
+  ) +
+  scale_x_date(
+    limits = as.Date(c("2018-08-01", "2018-09-12")),
+    date_breaks = "7 days", date_minor_breaks = "1 day",
+    date_labels = "%B %d"
+  ) +
+  scale_y_continuous(labels = polloi::compress) +
+  wmf::theme_min(14) +
+  labs(
+    x = "Date", y = "Pageviews",
+    title = "Search engine-referred traffic attributable to sitemaps",
+    subtitle = "Day-by-day point estimates with 95% confidence intervals"
+  )
+```
 
 # References
 
