@@ -1,0 +1,66 @@
+We tried a variety of [autoregressive (AR) models](https://en.wikipedia.org/wiki/Autoregressive_model) in different configurations and with different numbers of AR terms -- up to AR(3) -- with the following exclusions/inclusions:
+
+- [moving average (MA) component](https://en.wikipedia.org/wiki/Moving-average_model), up to MA(3)
+- weekdays, [Italian holiday](https://en.wikipedia.org/wiki/Public_holidays_in_Italy) indicators, and months as regressors -- for a total of $(7-1)+1+(12-1) = 18$ predictor variables in the regression component
+- effect $\delta_0$ of intervention at time $T$ as an immediate, constant change $z_t = \delta_0 I_t$
+- effect $\delta_0$ of intervention at time $T$ as a gradually levelling-off change: $z_t = \omega_1 z_{t-1} + \delta_0 I_t$
+- effect $\delta_0$ of intervention at time $T$ as a ramping-up, then gradually levelling-off ("S"-shaped) [Gompertz function](https://en.wikipedia.org/wiki/Gompertz_function) change:
+
+\begin{equation}
+  z_t = \delta_0 \mathrm{e}^{-d \mathrm{e}^{-\lambda (t - T)}} I_t
+\end{equation}
+
+with indicator $I_t = 1$ for $t >= T$ and $I_t = 0$ otherwise in all cases. The $I_t$ is to ensure $z_t = 0$ when $t < T$. It may be helpful to visualize those three possible models of change-due-to-intervention. Suppose the observed data covers 20 days and that the intervention occurred on day 5:
+
+```{r dataviz_change_comparison, fig.width=12, fig.height=4, fig.cap="These three models show how the same intervention effect can express itself in multiple ways, with the Gompertz model being more likely in our case because of the time it takes for search engines like Google to ingest the sitemap and update their index."}
+c(N, T, delta0, omega1, lambda, d) %<-% c(20, 5, 1, 0.6, 0.5, 7)
+z <- dplyr::bind_rows(list(
+  A = data.frame(t = T:N, z = delta0),
+  B = data.frame(t = T:N, z = delta0 * (1 - (omega1 ^ ((T:N) - T + 1))) / (1 - omega1)),
+  C = data.frame(t = T:N, z = delta0 * exp(-d * exp(-lambda * ((T:N) - T))))
+), .id = "change model") %>%
+  dplyr::mutate(`change model` = factor(`change model`, c("A", "B", "C"), c("instant, constant", "gradually levelling-off", "Gompertz")))
+ggplot(z, aes(x = t, y = z)) +
+  geom_line(color = "red") +
+  geom_vline(xintercept = T, linetype = "dashed") +
+  facet_wrap(~ `change model`, ncol = 3) +
+  geom_line(data = data.frame(t = 1:T, z = 0), color = "black") +
+  wmf::theme_facet(14) +
+  labs(
+    y = expression(z[t]), x = "t", color = "Change applied to time series",
+    title = expression("Models of change-due-to-intervention"~z[t]~at~T==10~"with effect"~delta[0]==1),
+    subtitle = expression(
+      omega[1]==0.6~"in gradual model"~z[t]==omega[1]*z[t-1]+delta[0]*I[t]~", and "~lambda==0.5~"in Gompertz model"~z[t]==delta[0]*e^(-7*e^(-lambda*(t-T)))
+    )
+  )
+```
+
+Each model was specified in the [Stan](https://en.wikipedia.org/wiki/Stan_(software)) probabilistic programming language [@JSSv076i01] and fit in the statistical software and programming language [R](https://en.wikipedia.org/wiki/R_(programming_language)) [@base] using the **RStan** interface [@rstan] and [Markov chain Monte Carlo (MCMC)](https://en.wikipedia.org/wiki/Markov_chain_Monte_Carlo).
+
+\clearpage
+
+For model comparison, we used **bridgesampling** R package by Gronau et al. [-@2017arXiv171008162G] to calculate the log marginal likelihood and posterior probability of each model. Then we used the same package to calculate the Bayes factor of the top candidates and interpreted it within the Kass and Raftery framework [-@doi:10.1080/01621459.1995.10476572] to select the best one. Those models and their metrics are listed in Table 2 in the Appendix.
+
+The final model of search engine traffic $y_t$ (measured as millions of pageviews) is ARMA(2,2) with overall mean $\mu$, Normally-distributed noise $\epsilon_t$ (having standard deviation $\sigma$), regressors $\mathbf{x}$, and a Gompertz model of change-due-to-intervention $z_t$ (Eq. 1):
+
+\begin{align*}
+y_t & = \mu + \sum_p \phi_p y_{t - p} + \sum_q \theta_q \epsilon_{t - q} + \sum_k \beta_k x_{t,k} + z_t + \epsilon_t;\\
+z_t & = \delta_0 \mathrm{e}^{-d \mathrm{e}^{-\lambda (t - T)}} I_t,
+\end{align*}
+
+where $T$ marks the deployment of the sitemaps and $I_t = 1$ for $t \geq T$ (and 0 otherwise) as before. The underlying intervention effect of interest $\delta_0$ is inferred using [Bayesian inference](https://en.wikipedia.org/wiki/Bayesian_inference). The model's parameters had the following [priors](https://en.wikipedia.org/wiki/Prior_probability):
+
+\begin{align*}
+  \phi_p, \theta_q & \sim \text{Cauchy}(0, 1),~-1 \leq \phi_p, \theta_q \leq 1, p = 1, 2, q = 1, 2;\\
+  \sigma & \sim \text{Cauchy}(0, 5),~\sigma > 0;\\
+  \delta_0, \beta_k & \sim \mathcal{N}(0, 10),~k = 1, \ldots, 18;\\
+  \mu & \sim \mathcal{N}(8, 4);\\
+  d & \sim \mathcal{N}(7, 5);~\text{and}\\
+  \lambda & \sim \mathcal{N}(0, 2),~0 < \lambda < 5.
+\end{align*}
+
+Some of the priors are very informative, and the following is our reasoning:
+
+- on average the Italian Wikipedia gets 8 million search engine-referred pageviews, so we centered the mean $\mu$ at 8 ($y_t$ is in millions),
+- it takes time for Google and other search engines to ingest the newly deployed sitemaps and update their indices, so we're centering the Normal prior on $d$ at 7 (days),
+- based on our exploration of different values of $\lambda$, we assign it higher probability at 0-3 with a $\mathcal{N}(0, 2)$ prior and restrict it to 5 (which is very steep -- indicating near-immediate change -- and much less likely).
