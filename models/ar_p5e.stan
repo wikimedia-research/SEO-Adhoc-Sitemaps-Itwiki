@@ -16,6 +16,7 @@ parameters {
   real<lower = -1, upper = 1> phi[p]; // AR(p) coefficients
   real<lower = 0, upper = 5> lambda;  // Gompertz growth rate
   real<lower = 1> d;                  // Gompertz displacement along t
+  real beta0;                         // trend coefficient
 }
 model {
   // priors
@@ -25,10 +26,11 @@ model {
   phi ~ cauchy(0, 1);
   lambda ~ normal(0, 2);
   d ~ normal(7, 5);
+  beta0 ~ normal(0, 10);
   // likelihood
   for (t in (p + 1):N) {
     real z = 0;
-    real nu = mu;
+    real nu = mu + beta0 * t;
     if (t >= T) {
       z += gompertz(t - T, delta0, d, lambda);
     }
@@ -50,10 +52,10 @@ generated quantities {
     }
   }
   for (t in 1:p) {
-    yhat[t] = normal_rng(mu + z[t], sigma);
+    yhat[t] = normal_rng(mu + z[t] + beta0 * t, sigma);
   }
   for (t in (p + 1):N) {
-    real nu = mu + z[t];
+    real nu = mu + z[t] + beta0 * t;
     for (i in 1:min(t - 1, p)) {
       nu += phi[i] * y[t - i];
     }

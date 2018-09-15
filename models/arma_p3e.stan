@@ -12,6 +12,7 @@ parameters {
   real<lower = -1, upper = 1> phi[p];   // AR(p) coefficients
   real<lower = -1, upper = 1> theta[q]; // MA(q) coefficients
   real<lower = 0, upper = 1> omega1;    // gradation coefficient
+  real beta0;                           // trend coefficient
 }
 model {
   vector[N] epsilon; // error/noise at time t
@@ -22,13 +23,14 @@ model {
   phi ~ cauchy(0, 1);
   theta ~ cauchy(0, 1);
   omega1 ~ beta(6, 3);
+  beta0 ~ normal(0, 10);
   // likelihood
   for (t in 1:max(p, q)) {
     epsilon[t] = 0;
   }
   for (t in (max(p, q) + 1):N) {
     real z = 0;
-    real nu = mu;
+    real nu = mu + beta0 * t;
     if (t >= T) {
       z += delta0 * (1 - (omega1 ^ (t - T + 1))) / (1 - omega1);
     }
@@ -56,7 +58,7 @@ generated quantities {
     }
   }
   for (t in 1:max(p, q)) {
-    yhat[t] = mu + z[t] + noise[t];
+    yhat[t] = mu + z[t] + noise[t] + beta0 * t;
   }
   for (t in (max(p, q) + 1):N) {
     real nu = mu + z[t];

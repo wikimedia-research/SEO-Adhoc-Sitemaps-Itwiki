@@ -11,6 +11,7 @@ parameters {
   real mu;                              // intercept
   real<lower = -1, upper = 1> phi[p];   // AR(p) coefficients
   real<lower = -1, upper = 1> theta[q]; // MA(q) coefficients
+  real beta0;                           // trend coefficient
 }
 model {
   vector[N] epsilon; // error/noise at time t
@@ -20,12 +21,13 @@ model {
   delta0 ~ normal(0, 10);
   phi ~ cauchy(0, 1);
   theta ~ cauchy(0, 1);
+  beta0 ~ normal(0, 10);
   // likelihood
   for (t in 1:max(p, q)) {
     epsilon[t] = 0;
   }
   for (t in (max(p, q) + 1):N) {
-    real nu = mu + delta0 * (t >= T ? 1 : 0);
+    real nu = mu + delta0 * (t >= T ? 1 : 0) + beta0 * t;
     for (i in 1:p) {
       nu += phi[i] * y[t - i];
     }
@@ -43,10 +45,10 @@ generated quantities {
     noise[t] = normal_rng(0, sigma);
   }
   for (t in 1:max(p, q)) {
-    yhat[t] = mu + delta0 * (t >= T ? 1 : 0) + noise[t];
+    yhat[t] = mu + delta0 * (t >= T ? 1 : 0) + noise[t] + beta0 * t;
   }
   for (t in (max(p, q) + 1):N) {
-    real nu = mu + delta0 * (t >= T ? 1 : 0);
+    real nu = mu + delta0 * (t >= T ? 1 : 0) + beta0 * t;
     for (i in 1:p) {
       nu += phi[i] * y[t - i];
     }

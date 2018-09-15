@@ -13,6 +13,7 @@ parameters {
   real mu;                              // intercept
   real<lower = -1, upper = 1> phi[p];   // AR(p) coefficients
   real<lower = -1, upper = 1> theta[q]; // MA(q) coefficients
+  real beta0;                           // trend coefficient
   vector[K] beta;                       // coefficients for predictors
 }
 model {
@@ -21,6 +22,7 @@ model {
   mu ~ normal(8, 4); // the average is 8 mil pvs/day
   sigma ~ cauchy(0, 5);
   delta0 ~ normal(0, 10);
+  beta0 ~ normal(0, 10);
   beta ~ normal(0, 10);
   phi ~ cauchy(0, 1);
   theta ~ cauchy(0, 1);
@@ -29,7 +31,7 @@ model {
     epsilon[t] = 0;
   }
   for (t in (max(p, q) + 1):N) {
-    real nu = mu + x[t, ] * beta + delta0 * (t >= T ? 1 : 0);
+    real nu = mu + x[t, ] * beta + delta0 * (t >= T ? 1 : 0) + beta0 * t;
     for (i in 1:p) {
       nu += phi[i] * y[t - i];
     }
@@ -47,10 +49,10 @@ generated quantities {
     noise[t] = normal_rng(0, sigma);
   }
   for (t in 1:max(p, q)) {
-    yhat[t] = mu + x[t, ] * beta + delta0 * (t >= T ? 1 : 0) + noise[t];
+    yhat[t] = mu + x[t, ] * beta + delta0 * (t >= T ? 1 : 0) + beta0 * t + noise[t];
   }
   for (t in (max(p, q) + 1):N) {
-    real nu = mu + x[t, ] * beta + delta0 * (t >= T ? 1 : 0);
+    real nu = mu + x[t, ] * beta + delta0 * (t >= T ? 1 : 0) + beta0 * t;
     for (i in 1:p) {
       nu += phi[i] * y[t - i];
     }

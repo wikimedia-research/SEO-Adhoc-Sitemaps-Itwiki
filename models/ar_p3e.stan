@@ -10,6 +10,7 @@ parameters {
   real mu;                            // intercept
   real<lower = -1, upper = 1> phi[p]; // AR(p) coefficients
   real<lower = 0, upper = 1> omega1;  // gradation coefficient
+  real beta0;                         // trend coefficient
 }
 model {
   // priors
@@ -18,10 +19,11 @@ model {
   delta0 ~ normal(0, 10);
   phi ~ cauchy(0, 1);
   omega1 ~ beta(6, 3);
+  beta0 ~ normal(0, 10);
   // likelihood
   for (t in (p + 1):N) {
     real z = 0;
-    real nu = mu;
+    real nu = mu + beta0 * t;
     if (t >= T) {
       z += delta0 * (1 - (omega1 ^ (t - T + 1))) / (1 - omega1);
     }
@@ -43,7 +45,7 @@ generated quantities {
     }
   }
   for (t in 1:p) {
-    yhat[t] = normal_rng(mu + z[t], sigma);
+    yhat[t] = normal_rng(mu + z[t] + beta0 * t, sigma);
   }
   for (t in (p + 1):N) {
     real nu = mu + z[t];

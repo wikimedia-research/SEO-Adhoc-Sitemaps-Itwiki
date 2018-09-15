@@ -16,6 +16,7 @@ parameters {
   real delta0;                        // impact of intervention
   real mu;                            // intercept
   real<lower = -1, upper = 1> phi[p]; // AR(p) coefficients
+  real beta0;                         // trend coefficient
   vector[K] beta;                     // coefficients for predictors
   real<lower = 0, upper = 5> lambda;  // Gompertz growth rate
   real<lower = 1> d;                  // Gompertz displacement along t
@@ -25,6 +26,7 @@ model {
   mu ~ normal(8, 4); // the average is 8 mil pvs/day
   sigma ~ cauchy(0, 5);
   delta0 ~ normal(0, 10);
+  beta0 ~ normal(0, 10);
   beta ~ normal(0, 10);
   phi ~ cauchy(0, 1);
   lambda ~ normal(0, 2);
@@ -32,7 +34,7 @@ model {
   // likelihood
   for (t in (p + 1):N) {
     real z = 0;
-    real nu = mu + x[t, ] * beta;
+    real nu = mu + x[t, ] * beta + beta0 * t;
     if (t >= T) {
       z += gompertz(t - T, delta0, d, lambda);
     }
@@ -54,10 +56,10 @@ generated quantities {
     }
   }
   for (t in 1:p) {
-    yhat[t] = normal_rng(mu + x[t, ] * beta + z[t], sigma);
+    yhat[t] = normal_rng(mu + x[t, ] * beta + z[t] + beta0 * t, sigma);
   }
   for (t in (p + 1):N) {
-    real nu = mu + x[t, ] * beta + z[t];
+    real nu = mu + x[t, ] * beta + z[t] + beta0 * t;
     for (i in 1:p) {
       nu += phi[i] * y[t - i];
     }
