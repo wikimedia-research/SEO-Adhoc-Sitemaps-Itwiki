@@ -48,7 +48,7 @@ events <- dplyr::data_frame(
   dplyr::left_join(dplyr::select(itwiki_pvs, date, day), by = "date")
 event_days <- set_names(events$day, events$event)
 
-google_traffic <- readr::read_csv("data/google.csv") %>%
+google_traffic <- readr::read_csv(here("data", "google.csv")) %>%
   dplyr::arrange(date) %>%
   dplyr::mutate(
     pageviews = pageviews / 1e6,

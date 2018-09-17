@@ -9,63 +9,21 @@ options(mc.cores = parallel::detectCores())
 rstan_options(auto_write = TRUE)
 
 stan_models <- list(
-  # stan_model(here("models", "simple.stan"), model_name = "Simple"),
-  stan_model(
-    here("models", "ar.stan"),
-    model_name = "AR({p}) w/ instant change"
-  ),
-  stan_model(
-    here("models", "ar_regression.stan"),
-    model_name = "AR({p}) w/ instant change & regressors"
-  ),
-  stan_model(
-    here("models", "arma.stan"),
-    model_name = "ARMA({p},{q}) w/ instant change"
-  ),
-  stan_model(
-    here("models", "arma_regression.stan"),
-    model_name = "ARMA({p},{q}) w/ instant change & regressors"
-  ),
-  stan_model(
-    here("models", "ar_p3e.stan"),
-    model_name = "AR({p}) w/ levelling-off change"
-  ),
-  stan_model(
-    here("models", "ar_regression_p3e.stan"),
-    model_name = "AR({p}) w/ levelling-off change & regressors"
-  ),
-  stan_model(
-    here("models", "arma_p3e.stan"),
-    model_name = "ARMA({p},{q}) w/ levelling-off change"
-  ),
-  stan_model(
-    here("models", "arma_regression_p3e.stan"),
-    model_name = "ARMA({p},{q}) w/ levelling-off change & regressors"
-  ),
-  stan_model(
-    here("models", "ar_p5e.stan"),
-    model_name = "AR({p}) w/ Gompertz change"
-  ),
-  stan_model(
-    here("models", "ar_regression_p5e.stan"),
-    model_name = "AR({p}) w/ Gompertz change & regressors"
-  ),
-  stan_model(
-    here("models", "ar_regression_p5e_v2.stan"),
-    model_name = "AR({p}) w/ Gompertz change & regressors (v2)"
-  ),
-  stan_model(
-    here("models", "arma_p5e.stan"),
-    model_name = "ARMA({p},{q}) w/ Gompertz change"
-  ),
-  stan_model(
-    here("models", "arma_regression_p5e.stan"),
-    model_name = "ARMA({p},{q}) w/ Gompertz change & regressors"
-  ),
-  stan_model(
-    here("models", "arma_regression_p5e_v2.stan"),
-    model_name = "ARMA({p},{q}) w/ Gompertz change & regressors (v2)"
-  )
+  # stan_model("simple.stan", model_name = "Simple",
+  stan_model("models/ar.stan", model_name = "AR({p}) w/ instant change"),
+  stan_model("models/ar_regression.stan", model_name = "AR({p}) w/ instant change & regressors"),
+  stan_model("models/arma.stan", model_name = "ARMA({p},{q}) w/ instant change"),
+  stan_model("models/arma_regression.stan", model_name = "ARMA({p},{q}) w/ instant change & regressors"),
+  stan_model("models/ar_p3e.stan", model_name = "AR({p}) w/ levelling-off change"),
+  stan_model("models/ar_regression_p3e.stan", model_name = "AR({p}) w/ levelling-off change & regressors"),
+  stan_model("models/arma_p3e.stan", model_name = "ARMA({p},{q}) w/ levelling-off change"),
+  stan_model("models/arma_regression_p3e.stan", model_name = "ARMA({p},{q}) w/ levelling-off change & regressors"),
+  stan_model("models/ar_p5e.stan", model_name = "AR({p}) w/ Gompertz change"),
+  stan_model("models/ar_regression_p5e.stan", model_name = "AR({p}) w/ Gompertz change & regressors" ),
+  stan_model("models/ar_regression_p5e_v2.stan", model_name = "AR({p}) w/ Gompertz change & regressors (v2)"),
+  stan_model("models/arma_p5e.stan", model_name = "ARMA({p},{q}) w/ Gompertz change"),
+  stan_model("models/arma_regression_p5e.stan", model_name = "ARMA({p},{q}) w/ Gompertz change & regressors"),
+  stan_model("models/arma_regression_p5e_v2.stan", model_name = "ARMA({p},{q}) w/ Gompertz change & regressors (v2)")
 )
 stan_models %<>% set_names(map_chr(stan_models, ~ .x@model_name))
 
@@ -88,7 +46,7 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, n
   # Initial estimates as starting points for the model:
   constrain <- function(x) {
     # constrain to remain in region of stationarity
-    return(sign(x) * pmin(abs(x), 0.99))
+    return(sign(x) * pmin(abs(x), 0.95))
   }
   if (has_regression) {
     arima_fit <- arima(model_data$y, c(p, 0, q), include.mean = TRUE, xreg = x)
@@ -107,8 +65,8 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, n
   initf <- function() {
     inits <- inits
     if (grepl("Gompertz", model_name)) {
-      inits$lambda <- runif(1, 2, 3)
-      inits$d <- runif(1, 7, 14)
+      inits$lambda <- runif(1, 0.5, 3)
+      inits$d <- runif(1, 5, 14)
     } else if (grepl("levelling-off", model_name, fixed = TRUE)) {
       inits$omega1 <- runif(1, 0.5, 0.9)
     }
@@ -164,5 +122,6 @@ models <- expand.grid(
     )
   ) %>%
   dplyr::distinct() %>%
+  dplyr::filter(grepl("regressors", model_name), grepl("Gompertz", model_name)) %>%
   dplyr::filter((p > 1) | (p == 1 & q >= 1)) %>%
   dplyr::arrange(model_name, p, q)
