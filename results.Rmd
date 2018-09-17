@@ -1,15 +1,19 @@
-```{r final_fit}
-best_model <- "ARMA(7,5) w/ Gompertz change & regressors"
-final_fit <- readr::read_rds("fits/fit_arma75r5e.rds")
+```{r model_fit}
+search_engine_traffic_model <- "ARMA(7,5) w/ Gompertz change & regressors (v2)"
+search_engine_traffic_fit <- readr::read_rds("fits/fit_arma75r5ev2.rds")
+google_desktop_traffic_model <- "ARMA(4,3) w/ Gompertz change & regressors (v2)"
+google_desktop_traffic_fit <- readr::read_rds("fits2/fit_arma43r5ev2.rds")
+source("summarizing.R")
 ```
 
 The results presented here are from the model with the highest posterior probability of model given the data (`r best_model`) with the estimates and intervals in Table 1 based on MCMC samples from the [posterior distribution](https://en.wikipedia.org/wiki/Posterior_probability) of parameters given data.
 
 ```{r dataviz_predictions, fig.height=4.5, fig.width=9, fig.cap="To show the quality of the final model as an explanation of the data, we generated predictions of pageviews for each day to see how the predicted pageview counts matched with observed pageview counts. Most of the time, the actual counts are close to the point estimates or are at least within the prediction interval."}
-final_fit %>%
+p1 <- search_engine_traffic_fit %>%
   posterior_predictive_plot(
-    title = "Model-predicted search engine traffic",
-    subtitle = best_model
+    dplyr::select(itwiki_pvs, date, day, actual = desktop),
+    title = "Model-predicted desktop traffic from search engines",
+    subtitle = search_engine_traffic_model
   ) +
   scale_y_continuous(limits = c(0, 15)) +
   scale_x_date(
@@ -22,24 +26,47 @@ final_fit %>%
     data = dplyr::filter(events, event == "sitemap deployment")
   ) +
   labs(caption = "Actual traffic displayed in black, predictions (estimates and 95% confidence intervals) in red")
+p2 <- google_desktop_traffic_fit %>%
+  posterior_predictive_plot(
+    dplyr::select(google_traffic, date, day, actual = pageviews),
+    title = "Model-predicted desktop traffic from Google",
+    subtitle = google_desktop_traffic_model
+  ) +
+  scale_y_continuous(limits = c(0, 5)) +
+  scale_x_date(
+    limits = as.Date(c("2018-06-17", "2018-09-14")),
+    date_labels = "%d %b", date_breaks = "2 weeks", date_minor_breaks = "1 week"
+  ) +
+  coord_cartesian(ylim = c(0, 5)) +
+  geom_vline(
+    aes(xintercept = date), linetype = "dashed",
+    data = dplyr::filter(events, event == "GSC submission")
+  ) +
+  labs(caption = "Actual traffic displayed in black, predictions (estimates and 95% confidence intervals) in red")
 ```
 
 ```{r posterior_samples}
-posterior_samples <- broom::tidyMCMC(final_fit, pars = c("delta0", "z"), estimate.method = "median", conf.int = TRUE, conf.method = "HPDinterval", conf.level = 0.95)
+posterior_samples <- list(
+  `All traffic from search engines` = broom::tidyMCMC(search_engine_traffic_fit, pars = c("delta0", "z"), estimate.method = "median", conf.int = TRUE, conf.method = "HPDinterval", conf.level = 0.95) %>%
+    dplyr::mutate(date = c(NA, itwiki_pvs$date)),
+  `Desktop traffic from Google` = broom::tidyMCMC(google_desktop_traffic_fit, pars = c("delta0", "z"), estimate.method = "median", conf.int = TRUE, conf.method = "HPDinterval", conf.level = 0.95) %>%
+    dplyr::mutate(date = c(NA, google_traffic$date))
+) %>% dplyr::bind_rows(.id = "dataset")
 compress <- function(x, ...) {
   y <- polloi::compress(abs(x, ...))
   return(paste0(ifelse(x < 0, "-", ""), y))
 }
 posterior_samples %>%
   dplyr::filter(term == "delta0") %>%
-  dplyr::mutate(
+  dplyr::group_by(dataset) %>%
+  dplyr::summarize(
     estimate = sprintf("%s (%s)", compress(1e6 * estimate), compress(1e6 * std.error)),
     ci95 = sprintf("(%s, %s)", compress(1e6 * conf.low), compress(1e6 * conf.high))
   ) %>%
-  dplyr::select(estimate, ci95) %>%
+  dplyr::ungroup() %>%
   kable(
-    booktabs = TRUE, col.names = c("Point Estimate (Standard Error)", "95% Highest Density Interval"),
-    caption = "Estimates effect of sitemaps on daily search engine-referred pageviews. The estimate is the median calculated from MCMC samples drawn from the posterior distribution of $\\delta_0$. The Highest Density Interval (HDI) contains values such that all values within the interval have a higher probability than points outside the interval."
+    booktabs = TRUE, col.names = c("Data", "Point Estimate (Standard Error)", "95% Highest Density Interval"),
+    caption = "Estimates effect of sitemaps on daily pageviews. The estimate is the median calculated from MCMC samples drawn from the posterior distribution of $\\delta_0$. The Highest Density Interval (HDI) contains values such that all values within the interval have a higher probability than points outside the interval."
   ) %>%
   kable_styling()
 ```

@@ -2,13 +2,13 @@ source("modeling_core.R")
 source("data.R")
 
 model_data <- list(
-  y = itwiki_pvs$both,
+  y = itwiki_pvs$desktop,
   N = nrow(itwiki_pvs),
   T = event_days["sitemap deployment"]
 )
 fits <- pmap_dfr(
   models, fit_stan_model, model_data = model_data, fit_dir = "fits",
-  xreg = itwiki_pvs[, c("month", "weekday", "is_holiday")]
+  xreg = itwiki_pvs[, c("year", "month", "weekday", "is_holiday")]
 )
 
 # Save the model names and pointers to a TSV:
