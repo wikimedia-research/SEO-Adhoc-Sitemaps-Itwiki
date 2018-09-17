@@ -86,17 +86,20 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, n
     model_data$K <- ncol(x); model_data$x <- x
   }
   # Initial estimates as starting points for the model:
+  constrain <- function(x) {
+    # constrain to remain in region of stationarity
+    return(sign(x) * pmin(abs(x), 0.99))
+  }
   if (has_regression) {
     arima_fit <- arima(model_data$y, c(p, 0, q), include.mean = TRUE, xreg = x)
   } else {
     arima_fit <- arima(model_data$y, c(p, 0, q), include.mean = TRUE)
   }
   arima_coefs <- coefficients(arima_fit)
-  phi <- unname(arima_coefs[grepl("^ar[1-9]", names(arima_coefs))])
-  phi <- array(sign(phi) * pmin(abs(phi), 0.99), dim = p) # constrain to remain in region of stationarity
+  phi <- array(constrain(unname(arima_coefs[grepl("^ar[1-9]", names(arima_coefs))])), dim = p)
   inits <- list(sigma = sqrt(arima_fit$sigma2), mu = unname(arima_coefs["intercept"]), phi = phi)
   if (q > 0) {
-    inits$theta <- array(unname(arima_coefs[grepl("^ma[1-9]", names(arima_coefs))]), dim = q)
+    inits$theta <- array(constrain(unname(arima_coefs[grepl("^ma[1-9]", names(arima_coefs))])), dim = q)
   }
   if (has_regression) {
     inits$beta <- array(unname(arima_coefs[(which(names(arima_coefs) == "intercept") + 1):length(arima_coefs)]), dim = ncol(x))
