@@ -42,8 +42,20 @@ itwiki_pvs <- dplyr::select(it_holidays, date) %>%
   dplyr::mutate(is_holiday = dplyr::if_else(is.na(is_holiday), 0, is_holiday))
 
 events <- dplyr::data_frame(
-  date = as.Date(c("2018-07-03", "2018-07-05", "2018-07-10", "2018-08-10")),
-  event = c("block start", "block stop", "traffic report", "sitemap deployment")
+  date = as.Date(c("2018-07-03", "2018-07-05", "2018-07-10", "2018-08-10", "2018-08-12")),
+  event = c("block start", "block stop", "traffic report", "sitemap deployment", "GSC submission")
 ) %>%
   dplyr::left_join(dplyr::select(itwiki_pvs, date, day), by = "date")
 event_days <- set_names(events$day, events$event)
+
+google_traffic <- readr::read_csv("data/google.csv") %>%
+  dplyr::arrange(date) %>%
+  dplyr::mutate(
+    pageviews = pageviews / 1e6,
+    day = 1:n(),
+    weekday = factor(
+      lubridate::wday(date, label = TRUE, abbr = FALSE, week_start = 7),
+      c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+    )
+  )
+submission_day <- which(google_traffic$date == "2018-08-12")
