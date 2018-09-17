@@ -24,16 +24,16 @@ summarize_predictions <- function(stan_fit) {
   return(output)
 }
 
-posterior_predictive_plot <- function(stan_fit, title,
+posterior_predictive_plot <- function(stan_fit, data, title,
                                       subtitle = "Search engine traffic to the Italian Wikipedia") {
   stan_fit %>%
     summarize_predictions %>%
-    dplyr::left_join(itwiki_pvs, by = "day") %>%
+    dplyr::left_join(data, by = "day") %>%
     dplyr::filter(day > 1) %>%
     ggplot(aes(x = date)) +
     geom_ribbon(aes(ymin = conf.low, ymax = conf.high), fill = "red", alpha = 0.5) +
     geom_line(aes(y = point.est), color = "red", size = 1) +
-    geom_line(aes(y = both), color = "black") +
+    geom_line(aes(y = actual), color = "black") +
     coord_cartesian(ylim = c(-5, 15)) +
     scale_x_date(limits = as.Date(c("2018-05-01", "2018-09-10"))) +
     labs(x = "Date", y = "Pageviews (in millions)", title = title, subtitle = subtitle) +
