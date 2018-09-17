@@ -13,7 +13,7 @@ parameters {
 }
 model {
   // priors
-  mu ~ normal(8, 4); // the average is 8 mil pvs/day
+  mu ~ normal(0, 10);
   sigma ~ cauchy(0, 5);
   delta0 ~ normal(0, 10);
   phi ~ cauchy(0, 1);
