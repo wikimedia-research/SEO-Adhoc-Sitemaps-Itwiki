@@ -14,14 +14,6 @@ opts_chunk$set(
 )
 options(knitr.table.format = "latex", scipen = 500, digits = 4)
 library(here); library(magrittr)
-```
-
-
-\section*{Appendix}
-
-```{r marginal_likelihoods}
-if (file.exists(here("fit_index.tsv"))) fits <- readr::read_tsv(here("fit_index.tsv")) else
-  if (file.exists(here("fit_index.csv"))) fits <- readr::read_csv(here("fit_index.csv"))
 refine_hpd <- function(hpd_summary) {
   refined <- hpd_summary %>%
     dplyr::mutate(
@@ -31,11 +23,6 @@ refine_hpd <- function(hpd_summary) {
     dplyr::select(Model = model, est, ci95)
   return(refined)
 }
-delta0_hpd <- readr::read_csv(here("results", "delta0_hpd.csv")) %>% refine_hpd
-omega1_hpd <- readr::read_csv(here("results", "omega1_hpd.csv")) %>% refine_hpd
-lambda_hpd <- readr::read_csv(here("results", "lambda_hpd.csv")) %>%
-  dplyr::filter(term == "lambda") %>% refine_hpd %>%
-  dplyr::bind_rows(omega1_hpd)
 prior_probs <- function(model_names, opinionated) {
   if (opinionated) {
     unnormalized <- purrr::map_dbl(model_names, function(model_name) {
@@ -50,10 +37,21 @@ prior_probs <- function(model_names, opinionated) {
   normalized <- unnormalized / sum(unnormalized)
   return(normalized)
 }
+```
+
+
+\section*{Appendix}
+
+```{r marginal_likelihoods}
+if (file.exists(here("fits2_index.tsv"))) fits <- readr::read_tsv(here("fits2_index.tsv")) else
+  if (file.exists(here("fits2_index.csv"))) fits <- readr::read_csv(here("fits2_index.csv"))
+delta0_hpd <- readr::read_csv(here("results2", "delta0_hpd.csv")) %>% refine_hpd
+# omega1_hpd <- readr::read_csv(here("results2", "omega1_hpd.csv")) %>% refine_hpd
+lambda_hpd <- readr::read_csv(here("results2", "lambda_hpd.csv")) %>%
+  dplyr::filter(term == "lambda") %>% refine_hpd # %>% dplyr::bind_rows(omega1_hpd)
 marginal_likelihoods <- set_names(as.list(fits$lml_path), fits$model) %>%
   purrr::map(readr::read_rds) %>%
   purrr::map_df(~ dplyr::data_frame(logL = .x$logml), .id = "Model") %>%
-  dplyr::filter(logL >= 500) %>%
   dplyr::mutate(
     post_prob = bridgesampling::post_prob(logL, prior_prob = prior_probs(Model, opinionated = FALSE)),
     logL = dplyr::if_else(logL < -500, "< -500", sprintf("%.2f", logL))
@@ -64,25 +62,25 @@ marginal_likelihoods %>%
   dplyr::left_join(lambda_hpd, by = "Model") %>%
   dplyr::mutate_all(dplyr::funs(replace(., is.na(.), "--"))) %>%
   dplyr::mutate(
-    change = factor(dplyr::case_when(
-      grepl("instant", Model) ~ 1,
-      grepl("levelling-off", Model, fixed = TRUE) ~ 2,
-      grepl("Gompertz", Model) & grepl("(v2)", Model, fixed = TRUE) ~ 4,
-      grepl("Gompertz", Model) ~ 3
-    ), 1:4, c("Instant, constant", "Gradual level-off", "Gompertz function", "Gompertsz (v2)")),
-    regression = factor(grepl("regressors", Model), c(FALSE, TRUE), c("No", "Yes")),
+    # change = factor(dplyr::case_when(
+    #   grepl("instant", Model) ~ 1,
+    #   grepl("levelling-off", Model, fixed = TRUE) ~ 2,
+    #   grepl("Gompertz", Model) & grepl("(v2)", Model, fixed = TRUE) ~ 4,
+    #   grepl("Gompertz", Model) ~ 3
+    # ), 1:4, c("Instant, constant", "Gradual level-off", "Gompertz function", "Gompertsz (v2)")),
+    # regression = factor(grepl("regressors", Model), c(FALSE, TRUE), c("No", "Yes")),
     Model = sub("w\\/.*", "", Model),
   ) %>%
-  dplyr::select(Model, change, regression, logL, post_prob, dplyr::everything()) %>%
-  dplyr::arrange(Model, change, regression) %>%
+  dplyr::select(Model, logL, post_prob, dplyr::everything()) %>%
+  dplyr::arrange(Model) %>%
   kable(
-    align = c("l", "l", "l", "r", "r", "r", "c", "r", "c"), booktabs = TRUE,
-    col.names = c("TS Model", "Change Model", "Regression", "log L", "Pr(Model)", "Est (SE)", "95% CI", "Est (SE)", "95% CI"),
-    caption = "Comparison metrics -- log marginal likelihood and posterior model probability (probability of model given data) -- of various models explored, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$ and gradation parameters $\\omega_1$ (for gradual levelling-off) and $\\lambda$ (for Gompertz) where applicable. For brevity, only the models with log marginal likelihood of 500 or greater are included in the table; many of the other models explored had 100 or less and were not worth mentioning."
+    align = c("l", "r", "r", "r", "c", "r", "c"), booktabs = TRUE, linesep = "",
+    col.names = c("TS Model", "log L", "Pr(Model)", "Est (SE)", "95% CI", "Est (SE)", "95% CI"),
+    caption = "Comparison metrics -- log marginal likelihood and posterior model probability (probability of model given data) -- of various models of desktop traffic from Google, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$ and growth rate $\\lambda$."
   ) %>%
   kable_styling(latex_options = c("striped", "scale_down", "hold_position")) %>%
   add_header_above(c(
-    "Model Specification" = 3, "Model Metrics" = 2,
-    "Intervention Effect" = 2, "Gradation ($\\\\omega_1$ or $\\\\lambda$)" = 2
+    "Model Specification" = 1, "Model Metrics" = 2,
+    "Intervention Effect" = 2, "Gradation ($\\\\lambda$)" = 2
   ), escape = FALSE)
 ```

@@ -27,7 +27,9 @@ stan_models <- list(
 )
 stan_models %<>% set_names(map_chr(stan_models, ~ .x@model_name))
 
-fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, n_chains = 4, ...) {
+fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL,
+                           n_chains = 4, stan_control = list(adapt_delta = 0.999), stan_iter = 6e3,
+                           ...) {
   # model_data is a list with components N, T, y
   # Setup:
   args <- list(...)
@@ -77,7 +79,7 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, n
   # Draw samples:
   fit <- sampling(
     stan_models[[model_name]], data = model_data,
-    control = list(adapt_delta = 0.999), iter = 6e3,
+    control = stan_control, iter = stan_iter,
     chains = n_chains, init = initf
   )
   # Log Marginal Likelihood via Bridge Sampling for model comparison:
@@ -86,7 +88,7 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, n
   if (!dir.exists(fit_dir)) dir.create(fit_dir)
   fit_name <- glue(model_name)
   if ("file_name" %in% names(args)) {
-    fit_file <- args$file_name
+    fit_file <- file.path(fit_dir, args$file_name)
   } else {
     fit_file <- tempfile("fit_", tmpdir = fit_dir, fileext = ".rds")
   }
@@ -104,24 +106,3 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, n
 
   return(dplyr::data_frame(model = fit_name, fit_path = fit_file, lml_path = lml_file))
 }
-
-models <- expand.grid(
-  model_name = names(stan_models),
-  p = c(1, 3, 5, 7),
-  q = c(0, 1, 3, 5),
-  stringsAsFactors = FALSE
-) %>%
-  dplyr::filter(
-    (
-      (grepl("{q}", model_name, fixed = TRUE) & q > 0) |
-        !grepl("{q}", model_name, fixed = TRUE)
-    ),
-    (
-      (grepl("^AR\\(\\{p\\}\\)", model_name) & q == 0) |
-        (grepl("^ARMA\\(\\{p\\}\\,\\{q\\}\\)", model_name) & q > 0)
-    )
-  ) %>%
-  dplyr::distinct() %>%
-  dplyr::filter(grepl("regressors", model_name), grepl("Gompertz", model_name)) %>%
-  dplyr::filter((p > 1) | (p == 1 & q >= 1)) %>%
-  dplyr::arrange(model_name, p, q)

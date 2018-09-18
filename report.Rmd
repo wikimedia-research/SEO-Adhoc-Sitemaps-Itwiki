@@ -1,13 +1,19 @@
 ---
-title: Impact of sitemaps on traffic to Italian Wikipedia from search engines
+title: Increasing traffic from search engines to Wikipedia with sitemaps
+subtitle: Analysis of impact on Google-referred pageviews to the Italian Wikipedia
 author: Mikhail Popov
 date: "`r sub('^0(\\d)', '\\1', format(Sys.Date(), '%d %B %Y'))`"
 abstract: |
-  On 10 August 2018, the Wikimedia Performance Team deployed sitemaps for the Italian Wikipedia. We used Bayesian time series intervention analysis to answer the question of "Did the sitemaps have a positive effect on search engine-referred pageviews?"
+  In July 2018, the Italian Wikipedia instituted a temporary block to protest the copyright potential copyright changes in Europe. This had a negative side-effect of search engines sending traffic to the redirected page even after the redirect was turned off, so the Wikimedia Foundation's Performance Team created and deployed sitemaps for the Italian Wikipedia on August 10th, 2018, and then submitted them to Google Search Console on August 12th -- both as a fix to the problem at hand and as an initial foray into sitemaps for Wikimedia projects.
+  
+  We used Bayesian time series intervention analysis to detect the impact that sitemaps had on Google-referred desktop (not mobile web) traffic to the Italian Wikipedia and found that approximately 755K pageviews (95% CI: 180K--1.36M) could be attributed to the deployment of sitemaps. While the initial results are impressive (a 54% increase from the average 1.38M pageviews per day), the negative side-effect from the direct casts a doubt on these results and we recommend further tests with better data collection. Specifically, we should aim to have at least two months of pre-deployment per-search engine daily pageview counts and at least one month of post-deployment data. Furthermore, we should deploy on wikis where there would be no artefacts such as the redirect.
+  
+    ----
+  
+  **Open report:** Code, data, and RMarkdown source document are [publicly available](https://github.com/wikimedia-research/SEO-Adhoc-Sitemaps-Itwiki) under a [Creative Commons Attribution-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-sa/4.0/).
 output:
   wmfpar::pdf_report:
     short_title: Italian Wikipedia sitemap impact (T202643)
-    watermark: "First Draft"
     cite_r_packages:
       # Presenation:
       - kableExtra
@@ -24,6 +30,7 @@ output:
       - patchwork
       # Modeling
       - stats # arima()
+      - mlr # createDummyFeatures()
       - rstan
       - bridgesampling
       # Misc.
@@ -52,26 +59,27 @@ library(zeallot)
 
 # Introduction
 
-For a few days in July 2018, all traffic that went to the Italian Wikipedia was redirected (via JavaScript) to a [page protesting potential copyright changes in the European Union](https://it.wikipedia.org/wiki/Wikipedia:Comunicato_3_luglio_2018/en); refer to [Hershenov [-@hershenov_2018]](https://blog.wikimedia.org/2018/06/29/eu-copyright-proposal-will-hurt-web-wikipedia/) for more information. After the redirect ended, it was observed that there was still a non-negligible amount of traffic going to the redirect page (see [T199252](https://phabricator.wikimedia.org/T199252)), with almost a million pageviews on July 11th, a full six days after the redirect was turned off. In an attempt to fix the problem while also implementing a recommendation from our SEO consultation with Go Fish Digital ([T198965](https://phabricator.wikimedia.org/T198965)), the Wikimedia Performance team created [sitemaps](https://en.wikipedia.org/wiki/Sitemaps) for the Italian Wikipedia and deployed them on 10 August 2018.
+For a few days in July 2018, all traffic that went to the Italian Wikipedia was redirected (via JavaScript) to a [page protesting potential copyright changes in the European Union](https://it.wikipedia.org/wiki/Wikipedia:Comunicato_3_luglio_2018/en); refer to [Hershenov [-@hershenov_2018]](https://blog.wikimedia.org/2018/06/29/eu-copyright-proposal-will-hurt-web-wikipedia/) for more information. After the redirect ended, it was observed that there was still a non-negligible amount of traffic going to the redirect page (see [T199252](https://phabricator.wikimedia.org/T199252)), with almost a million pageviews on July 11th, a full six days after the redirect was turned off. In an attempt to fix the problem while also implementing a recommendation from our SEO consultation with Go Fish Digital ([T198965](https://phabricator.wikimedia.org/T198965)), the Wikimedia Performance Team created [sitemaps](https://en.wikipedia.org/wiki/Sitemaps) for the Italian Wikipedia and deployed them on 10 August 2018. The sitemap was submitted to the Google Search Console on 12 August 2018.
 
-In this report, we used Bayesian time series intervention analysis to determine whether the deployment of the sitemaps had a positive impact on search engine-referred traffic to the Italian Wikipedia, as measured by [pageviews](https://meta.wikimedia.org/wiki/Research:Page_view). Our statistical model of search engine-referred traffic employed an [autoregressive moving average model](https://en.wikipedia.org/wiki/Autoregressive%E2%80%93moving-average_model) for the time series with the change-due-to-intervention modeled as a gradually ramping-up, gradually levelling-off S-shaped curve -- which enabled us to infer the effect of sitemaps' deployment while:
+In this report, we present the results of Bayesian time series intervention analysis to determine whether the deployment of the sitemaps had a positive impact on Google-referred traffic to the Italian Wikipedia, as measured by [pageviews](https://meta.wikimedia.org/wiki/Research:Page_view). We also looked at search engine-referred traffic to the Italian Wikipedia in general, but because sitemaps must be submitted to various search engines' webmaster tools, the sitemap only had a significant impact on Google-referred traffic. Our statistical model of employed an [autoregressive moving average model](https://en.wikipedia.org/wiki/Autoregressive%E2%80%93moving-average_model) for the time series with the change-due-to-intervention modeled as a gradually ramping-up, gradually levelling-off S-shaped curve -- which enabled us to infer the effect of sitemaps' deployment while:
 
-- accounting for time it took search engines to ingest the sitemaps update their indices,[^1][^2][^3] and
+- accounting for time it took search engines to ingest the sitemaps update their indices,[^goog] and
 - the reasonable assumption that there is an upper bound on how much additional traffic we can gain.
 
-[^1]: "It will take some time before Google can process a sitemap that you have submitted [to Search Console]. Note that Google can't promise to crawl or index every URL in your sitemap because we rely complex algorithms to make crawling decisions." ([Source](https://support.google.com/webmasters/answer/183669))
-[^2]: Note on sitemaps submitted in Bing Webmaster Tools: "processing submitted sitemaps takes time and can take from a few hours up to a few days." ([Source](https://www.bing.com/webmaster/help/how-to-submit-sitemaps-82a15bd4))
-[^3]: Note sitemaps submitted in Yandex.Webmaster service: "The file is put into the processing queue. The robot will download it within two weeks. Every added file, including the ones listed in the Sitemap index file, is handled by the robot separately." ([Source](https://yandex.com/support/webmaster/indexing-options/sitemap.html))
+Using the model, we estimated the effect of the sitemaps to be an additional 755K pageviews (95% CI: 180K--1.36M) to the Italian Wikipedia from Google, which would make it an increase of 54% from the average of 1.38M pageviews per day. An expanded version of the model fit to traffic from search engines in general detected a much smaller, statistically insignicant effect which makes sense because the sitemap was not submitted to other search engines for processing.
+
+The initial results look promising, but not particularly convincing. Deploying the sitemaps to the Italian Wikipedia -- whose traffic from Google suffered a negative side-effect due to the copyright redirect -- makes the results slightly unreliable due to the unmodeled artefact and the lack of data. Therefore, we recommend (1) collecting data in anticipation of the intervention rather than backfilling after the fact, and (2) deploying on wikis where there were no additional interventions leading up to the deployment of sitemaps.
+
+[^goog]: "It will take some time before Google can process a sitemap that you have submitted [to Search Console]. Note that Google can't promise to crawl or index every URL in your sitemap because we rely complex algorithms to make crawling decisions." ([Source](https://support.google.com/webmasters/answer/183669))
+
+\clearpage
 
 ```{r data, include=FALSE}
 source("data.R")
-source("summarizing.R")
 itwiki_pageviews <- itwiki_pvs %>%
   dplyr::select(-day) %>%
   tidyr::gather(access_method, pageviews, both, desktop, `mobile web`)
 ```
-
-\clearpage
 
 ```{r datavis_ts, fig.height=6, fig.width=10, fig.cap="The negative trend of the slowly decreasing desktop traffic cancels out the positive trend of the slowly increasing mobile (web) traffic, with the overall search engine traffic around 8 million pageviews per day."}
 p1 <- ggplot(
@@ -83,7 +91,6 @@ p1 <- ggplot(
     aes(xintercept = date), linetype = "dashed",
     data = dplyr::filter(events, event == "sitemap deployment")
   ) +
-  scale_color_brewer(palette = "Set1") +
   scale_x_date(date_breaks = "6 months", date_minor_breaks = "1 month") +
   labs(
     x = "Date", y = "Pageviews (in millions)",
@@ -109,27 +116,19 @@ p2 <- ggplot(
 p1 + p2 + plot_layout(ncol = 1)
 ```
 
-```{r dataviz_monthly_seasonality, fig.width=8, fig.height=4, fig.cap="Every year the Italian Wikipedia has a similar pattern of search engine traffic across months, which indicated to us that months should be included in the model."}
-ggplot(
-  dplyr::filter(itwiki_pageviews, access_method == "both", date < "2018-09-01"),
-  aes(x = month, y = pageviews, group = year, color = year)
-) +
-  stat_summary(fun.y = sum, geom = "line", size = 1.1) +
+```{r dataviz_monthly_seasonality, fig.width=8, fig.height=4, fig.cap="Every year the Italian Wikipedia has a similar pattern of search engine-referred traffic across months, which indicated to us that year and month should be included in the model of general search engine-referred traffic."}
+month_abbreviations <- set_names(month.abb, month.name)
+itwiki_pageviews %>%
+  dplyr::filter(access_method == "desktop") %>%
+  dplyr::mutate(month = month_abbreviations[month]) %>%
+  ggplot(aes(x = month, y = pageviews, group = year, color = year)) +
+  stat_summary(fun.y = median, geom = "line", size = 1.1) +
   scale_color_brewer(palette = "Set2") +
   labs(
     x = "Month", y = "Pageviews (in millions)", color = "Year",
-    title = "Search engine traffic to the Italian Wikipedia, by year/month"
+    title = "Median daily desktop traffic from search engines"
   ) +
   wmf::theme_min(14)
-```
-
-```{r dataviz_google}
-ggplot(google_traffic, aes(x = date, y = pageviews)) +
-  geom_line() +
-  geom_vline(
-    aes(xintercept = date), linetype = "dashed",
-    data = dplyr::filter(events, event == "GSC submission")
-  )
 ```
 
 \clearpage
@@ -139,10 +138,12 @@ ggplot(google_traffic, aes(x = date, y = pageviews)) +
 ```{r methods, child="methods.Rmd"}
 ```
 
-# Results
+# Results and Discussion
 
 ```{r results, child="results.Rmd"}
 ```
+
+\clearpage
 
 # References
 

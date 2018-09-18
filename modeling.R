@@ -15,7 +15,6 @@ fits <- pmap_dfr(
 readr::write_tsv(fits, "fits_index.tsv")
 
 # Run locally:
-system("scp -r bearloga@bayesian-intervention-analyzer.eqiad.wmflabs:/home/bearloga/itwiki_sitemaps/fit* ./")
 if (file.exists("fits_index.tsv")) fits <- readr::read_tsv("fits_index.tsv") else
   if (file.exists("fits_index.csv")) fits <- readr::read_csv("fits_index.csv")
 
@@ -47,3 +46,8 @@ set_names(as.list(fits$fit_path), fits$model) %>%
     here("results", "lambda_hpd.csv"),
     append = file.exists(here("results", "lambda_hpd.csv"))
   )
+
+fit_stan_model("ARMA({p},{q}) w/ Gompertz change & regressors (v2)", p = 7, q = 5,
+               model_data = model_data, xreg = itwiki_pvs[, c("year", "month", "weekday", "is_holiday")],
+               stan_control = list(adapt_delta = 0.9999, max_treedepth = 20), stan_iter = 8e4,
+               fit_dir = "fits", file_name = "fit_arma75r5ev2.rds")

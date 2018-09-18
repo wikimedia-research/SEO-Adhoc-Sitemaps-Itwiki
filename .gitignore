@@ -5,3 +5,6 @@
 *.pdf
 *.rds
 appendix.tex
+results*/
+fits*_index.csv
+fits*/

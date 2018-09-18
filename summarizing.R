@@ -31,11 +31,8 @@ posterior_predictive_plot <- function(stan_fit, data, title,
     dplyr::left_join(data, by = "day") %>%
     dplyr::filter(day > 1) %>%
     ggplot(aes(x = date)) +
-    geom_ribbon(aes(ymin = conf.low, ymax = conf.high), fill = "red", alpha = 0.5) +
+    geom_ribbon(aes(ymin = conf.low, ymax = conf.high), fill = "red", alpha = 0.4) +
     geom_line(aes(y = point.est), color = "red", size = 1) +
     geom_line(aes(y = actual), color = "black") +
-    coord_cartesian(ylim = c(-5, 15)) +
-    scale_x_date(limits = as.Date(c("2018-05-01", "2018-09-10"))) +
-    labs(x = "Date", y = "Pageviews (in millions)", title = title, subtitle = subtitle) +
-    wmf::theme_min()
+    labs(x = "Date", y = "Pageviews (in millions)", title = title, subtitle = subtitle)
 }
