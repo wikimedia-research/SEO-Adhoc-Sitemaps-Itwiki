@@ -8,7 +8,7 @@ model_data <- list(
 )
 fits <- pmap_dfr(
   models, fit_stan_model, model_data = model_data, fit_dir = "fits",
-  xreg = itwiki_pvs[, c("year", "month", "weekday", "is_holiday")]
+  xreg = itwiki_pvs[, c("month", "weekday")]
 )
 
 # Save the model names and pointers to a TSV:
@@ -49,5 +49,5 @@ set_names(as.list(fits$fit_path), fits$model) %>%
 
 fit_stan_model("ARMA({p},{q}) w/ Gompertz change & regressors (v2)", p = 7, q = 5,
                model_data = model_data, xreg = itwiki_pvs[, c("year", "month", "weekday", "is_holiday")],
-               stan_control = list(adapt_delta = 0.9999, max_treedepth = 20), stan_iter = 8e4,
+               stan_control = list(adapt_delta = 0.9999, max_treedepth = 20), stan_iter = 8e3,
                fit_dir = "fits", file_name = "fit_arma75r5ev2.rds")

@@ -2,9 +2,6 @@
 
 This is a repository of the Stan code for the various models explored during model search.
 
-- [Simple](simple.stan)
-  - no accounting for correlation, intervention effect moves intercept
-  - very bad model
 - General [autoregressive moving average](https://en.wikipedia.org/wiki/Autoregressive%E2%80%93moving-average_model) models with instant, permanent change:
   - [AR(p)](ar.stan)
   - [AR(p) w/ regressors](ar_regression.stan)
@@ -20,4 +17,4 @@ This is a repository of the Stan code for the various models explored during mod
   - [AR(p) w/ regressors](ar_regression_p5e.stan)
   - [ARMA(p,q)](arma_p5e.stan)
   - [ARMA(p,q) w/ regressors](arma_regression_p5e.stan)
-  - [ARMA(p,q) w/ regressors (v2)](arma_regression_p5e.stan) (includes standard deviation hyperparameter *&tau;* in the prior on *&delta;<sub>0</sub>*)
+  - [ARMA(p,q) w/ regressors (v2)](arma_regression_p5e.stan): reparameterization with categorical predictors as random intercepts

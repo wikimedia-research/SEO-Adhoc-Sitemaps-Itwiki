@@ -20,20 +20,40 @@ stan_models <- list(
   stan_model("models/arma_regression_p3e.stan", model_name = "ARMA({p},{q}) w/ levelling-off change & regressors"),
   stan_model("models/ar_p5e.stan", model_name = "AR({p}) w/ Gompertz change"),
   stan_model("models/ar_regression_p5e.stan", model_name = "AR({p}) w/ Gompertz change & regressors" ),
-  stan_model("models/ar_regression_p5e_v2.stan", model_name = "AR({p}) w/ Gompertz change & regressors (v2)"),
   stan_model("models/arma_p5e.stan", model_name = "ARMA({p},{q}) w/ Gompertz change"),
   stan_model("models/arma_regression_p5e.stan", model_name = "ARMA({p},{q}) w/ Gompertz change & regressors"),
   stan_model("models/arma_regression_p5e_v2.stan", model_name = "ARMA({p},{q}) w/ Gompertz change & regressors (v2)")
 )
 stan_models %<>% set_names(map_chr(stan_models, ~ .x@model_name))
 
-fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL,
+prepare_predictors <- function(N, xreg = NULL, creg = NULL) {
+  # Prepend continuous predictor for linear trend:
+  if (is.null(xreg)) {
+    xreg <- matrix(1:N, ncol = 1)
+  } else {
+    xreg <- cbind(t = 1:N, xreg)
+  }
+  # Create an intercept if there are no categorical predictors:
+  if (is.null(creg)) {
+    creg <- matrix(1, nrow = N, ncol = 1)
+    J <- array(1, dim = 1)
+    J_max <- 1
+  } else {
+    # Convert every factor into a numeric variable:
+    creg <- as.matrix(purrr::map_df(creg, as.integer))
+    J <- array(as.integer(apply(creg, 2, max)), dim = ncol(creg))
+    J_max <- max(J)
+  }
+  return(list(x = xreg, c = creg, J = J, J_max = J_max))
+}
+
+fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, creg = NULL,
                            n_chains = 4, stan_control = list(adapt_delta = 0.999), stan_iter = 6e3,
                            ...) {
   # model_data is a list with components N, T, y
   # Setup:
   args <- list(...)
-  has_regression <- grepl("regressors", model_name)
+  N <- model_data$N
   # Data for Stan:
   if (p > 0) {
     model_data$p <- p
@@ -41,29 +61,39 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL,
   if (q > 0) {
     model_data$q <- q
   }
-  if (has_regression && !is.null(xreg)) {
-    x <- mlr::createDummyFeatures(xreg, method = "reference")
-    model_data$K <- ncol(x); model_data$x <- x
+  model_uses_regression <- grepl("regressors", model_name)
+  reparameterized_model <- grepl("(v2)", model_name, fixed = TRUE)
+  if (model_uses_regression) {
+    if (reparameterized_model) {
+      regressors <- prepare_predictors(N, xreg, creg)
+      model_data$x <- regressors$x
+      model_data$K <- ncol(regressors$x)
+      model_data$c <- regressors$c
+      model_data$M <- ncol(regressors$c)
+      model_data$J <- regressors$J
+      model_data$J_max <- regressors$J_max
+    } else {
+      x <- mlr::createDummyFeatures(creg, method = "reference")
+      if (!is.null(xreg)) {
+        x <- as.matrix(cbind(xreg, x))
+      }
+      model_data$x <- x
+      model_data$K <- ncol(x)
+    }
   }
   # Initial estimates as starting points for the model:
   constrain <- function(x) {
     # constrain to remain in region of stationarity
     return(sign(x) * pmin(abs(x), 0.95))
   }
-  if (has_regression) {
-    arima_fit <- arima(model_data$y, c(p, 0, q), include.mean = TRUE, xreg = x)
-  } else {
-    arima_fit <- arima(model_data$y, c(p, 0, q), include.mean = TRUE)
-  }
+  arima_fit <- arima(model_data$y, c(p, 0, q), include.mean = model_uses_regression && !reparameterized_model)
   arima_coefs <- coefficients(arima_fit)
   phi <- array(constrain(unname(arima_coefs[grepl("^ar[1-9]", names(arima_coefs))])), dim = p)
-  inits <- list(sigma = sqrt(arima_fit$sigma2), mu = unname(arima_coefs["intercept"]), phi = phi)
+  inits <- list(sigma = sqrt(arima_fit$sigma2), phi = phi)
   if (q > 0) {
     inits$theta <- array(constrain(unname(arima_coefs[grepl("^ma[1-9]", names(arima_coefs))])), dim = q)
   }
-  if (has_regression) {
-    inits$beta <- array(unname(arima_coefs[(which(names(arima_coefs) == "intercept") + 1):length(arima_coefs)]), dim = ncol(x))
-  }
+  if (model_uses_regression && !reparameterized_model) inits$mu <- arima_coefs["intercept"]
   initf <- function() {
     inits <- inits
     if (grepl("Gompertz", model_name)) {
@@ -74,8 +104,6 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL,
     }
     return(inits)
   }
-  # Then we apply a little bit of noise for each chain to have slightly different starting points:
-  # starting_points <- replicate(n_chains, map(inits, jitter, amount = 1e-2), simplify = FALSE)
   # Draw samples:
   fit <- sampling(
     stan_models[[model_name]], data = model_data,

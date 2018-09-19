@@ -14,6 +14,7 @@ data {
 parameters {
   real<lower = 0> sigma;              // standard deviation of noise
   real delta0;                        // impact of intervention
+  real<lower = 0> tau;                // std dev of delta0
   real mu;                            // intercept
   real<lower = -1, upper = 1> phi[p]; // AR(p) coefficients
   real beta0;                         // trend coefficient
@@ -25,7 +26,8 @@ model {
   // priors
   mu ~ normal(0, 10);
   sigma ~ cauchy(0, 5);
-  delta0 ~ normal(0, 10);
+  tau ~ cauchy(0, 5);
+  delta0 ~ normal(0, tau);
   beta0 ~ normal(0, 10);
   beta ~ normal(0, 10);
   phi ~ cauchy(0, 1);
