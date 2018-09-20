@@ -39,7 +39,8 @@ it_holidays <- purrr::map_df(levels(itwiki_pvs$year), ~ dplyr::data_frame(
 itwiki_pvs <- dplyr::select(it_holidays, date) %>%
   dplyr::mutate(is_holiday = 1) %>%
   dplyr::left_join(itwiki_pvs, ., by = "date") %>%
-  dplyr::mutate(is_holiday = dplyr::if_else(is.na(is_holiday), 0, is_holiday))
+  dplyr::mutate(is_holiday = dplyr::if_else(is.na(is_holiday), 0, is_holiday)) %>%
+  dplyr::mutate(is_holiday = factor(is_holiday, 0:1, c("No", "Yes")))
 
 events <- dplyr::data_frame(
   date = as.Date(c("2018-07-03", "2018-07-05", "2018-07-10", "2018-08-10", "2018-08-12")),

@@ -42,13 +42,45 @@ prior_probs <- function(model_names, opinionated) {
 
 \section*{Appendix}
 
+```{r model_summary}
+google_desktop_traffic_fit <- readr::read_rds(here("fits2", "fit_arma32r5ev2.rds"))
+posterior_summary <- broom::tidyMCMC(
+  google_desktop_traffic_fit,
+  pars = c("delta0", "tau", "d", "lambda", "alpha_mean", "alpha_stddev", "alpha", "phi", "theta", "beta", "sigma"),
+  estimate.method = "median", conf.int = TRUE, conf.method = "HPDinterval"
+)
+term_labels <- dplyr::data_frame(
+  term = c("delta0", "tau", "d", "lambda", "alpha_mean", "alpha_stddev",
+           paste0("alpha[", 1:7, "]"), paste0("phi[", 1:3, "]"), paste0("theta[", 1:2, "]"),
+           "beta[1]", "sigma"),
+  label = c("$\\delta_0$ (impact)", "$\\tau$", "$d$", "$\\lambda$", "$\\mu_\\alpha$ (daily average)", "$\\sigma_\\alpha$",
+           paste0("$\\alpha_", 1:7, "$ (",
+                  c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"), ")"),
+           paste0("$\\phi_", 1:3, "$"), paste0("$\\theta_", 1:2, "$"),
+           "$\\beta_1$ (linear trend over time)", "$\\sigma_\\epsilon$ (daily noise variability)")
+)
+posterior_summary %>%
+  dplyr::left_join(term_labels, by = "term") %>%
+  dplyr::select(-term, model = label) %>%
+  refine_hpd %>%
+  kable(
+    align = c("l", "r", "c"), booktabs = TRUE, linesep = "", escape = FALSE,
+    col.names = c("Parameter", "Estimate (Standard Error)", "95\\% HPD Interval"),
+    caption = "Estimates and confidence intervals for parameters in the model of desktop traffic to the Italian Wikipedia from Google. The model was fit to pageview counts \\emph{in millions}. For example, when reading the table, $\\alpha_1 = 1.461$ indicates 1.46M pageviews on average on Sunday."
+  ) %>%
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down")) %>%
+  group_rows(index = c(
+    "Intervention effect as Gompertz function" = 4,
+    "Weekly seasonality as random intercepts" = 9,
+    "Autoregressive (AR) component" = 3,
+    "Moving average (MA) component" = 2,
+    "Linear regression component" = 2
+  ))
+```
+
 ```{r marginal_likelihoods}
-if (file.exists(here("fits2_index.tsv"))) fits <- readr::read_tsv(here("fits2_index.tsv")) else
-  if (file.exists(here("fits2_index.csv"))) fits <- readr::read_csv(here("fits2_index.csv"))
-delta0_hpd <- readr::read_csv(here("results2", "delta0_hpd.csv")) %>% refine_hpd
-# omega1_hpd <- readr::read_csv(here("results2", "omega1_hpd.csv")) %>% refine_hpd
-lambda_hpd <- readr::read_csv(here("results2", "lambda_hpd.csv")) %>%
-  dplyr::filter(term == "lambda") %>% refine_hpd # %>% dplyr::bind_rows(omega1_hpd)
+if (file.exists(here("fits_index.csv"))) fits <- readr::read_csv(here("fits_index.csv"))
+delta0_hpd <- readr::read_csv(here("results", "delta0_hpd.csv")) %>% refine_hpd
 marginal_likelihoods <- set_names(as.list(fits$lml_path), fits$model) %>%
   purrr::map(readr::read_rds) %>%
   purrr::map_df(~ dplyr::data_frame(logL = .x$logml), .id = "Model") %>%
@@ -59,7 +91,6 @@ marginal_likelihoods <- set_names(as.list(fits$lml_path), fits$model) %>%
 marginal_likelihoods %>%
   dplyr::mutate(post_prob = sprintf("%.3f%%", 100 * post_prob)) %>%
   dplyr::left_join(delta0_hpd, by = "Model") %>%
-  dplyr::left_join(lambda_hpd, by = "Model") %>%
   dplyr::mutate_all(dplyr::funs(replace(., is.na(.), "--"))) %>%
   dplyr::mutate(
     # change = factor(dplyr::case_when(
@@ -74,13 +105,13 @@ marginal_likelihoods %>%
   dplyr::select(Model, logL, post_prob, dplyr::everything()) %>%
   dplyr::arrange(Model) %>%
   kable(
-    align = c("l", "r", "r", "r", "c", "r", "c"), booktabs = TRUE, linesep = "",
-    col.names = c("TS Model", "log L", "Pr(Model)", "Est (SE)", "95% CI", "Est (SE)", "95% CI"),
-    caption = "Comparison metrics -- log marginal likelihood and posterior model probability (probability of model given data) -- of various models of desktop traffic from Google, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$ and growth rate $\\lambda$."
+    align = c("l", "r", "r", "r", "c"), booktabs = TRUE, linesep = "",
+    col.names = c("Time Series", "log L", "Pr(Model)", "Estimate (SE)", "95% CI"),
+    caption = "Comparison metrics -- log marginal likelihood and posterior model probability (probability of model given data) -- of various models of desktop traffic from Google, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$ and growth rate $\\lambda$. These were quickly fitted to get a sense of which model to go with, so the estimates in the final model differ due to more extensive MCMC sampling."
   ) %>%
-  kable_styling(latex_options = c("striped", "scale_down", "hold_position")) %>%
+  kable_styling(latex_options = c("striped", "hold_position", "scale_down")) %>%
   add_header_above(c(
     "Model Specification" = 1, "Model Metrics" = 2,
-    "Intervention Effect" = 2, "Gradation ($\\\\lambda$)" = 2
+    "Intervention Effect ($\\\\delta_0$)" = 2
   ), escape = FALSE)
 ```

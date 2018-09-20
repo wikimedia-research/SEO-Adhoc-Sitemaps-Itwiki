@@ -1,8 +1,7 @@
 We explored a variety of [autoregressive (AR) models](https://en.wikipedia.org/wiki/Autoregressive_model) in different configurations and with different numbers of AR terms with the following exclusions/inclusions:
 
 - [moving average (MA) component](https://en.wikipedia.org/wiki/Moving-average_model)
-- weekdays, [Italian holiday](https://en.wikipedia.org/wiki/Public_holidays_in_Italy) indicators, months, and years as predictor variables in the regression component
-  - because we did not have much data on Google-referred traffic, that model only included weekdays as regressors
+- weekdays or months as predictor variables in the regression component, depending on volume of available data
 - effect $\delta_0$ of intervention at time $T$ as an immediate, constant change $z_t = \delta_0 I_t$
 - effect $\delta_0$ of intervention at time $T$ as a gradually levelling-off change: $z_t = \omega_1 z_{t-1} + \delta_0 I_t$
 - effect $\delta_0$ of intervention at time $T$ as a ramping-up, then gradually levelling-off ("S"-shaped) [Gompertz function](https://en.wikipedia.org/wiki/Gompertz_function) change:
@@ -40,22 +39,24 @@ Neither the data nor intuition supported any model of change other than the Gomp
 
 Each model was specified in the [Stan](https://en.wikipedia.org/wiki/Stan_(software)) probabilistic programming language [@JSSv076i01] and fit in the statistical software and programming language [R](https://en.wikipedia.org/wiki/R_(programming_language)) [@base] using the **RStan** interface [@rstan] and [Markov chain Monte Carlo (MCMC)](https://en.wikipedia.org/wiki/Markov_chain_Monte_Carlo).
 
-For model comparison, we used **bridgesampling** R package by Gronau et al. [-@2017arXiv171008162G] to calculate the log marginal likelihood and posterior probability of each model. Then we used the same package to calculate the Bayes factor of the top candidates and interpreted it within the Kass and Raftery framework [-@doi:10.1080/01621459.1995.10476572] to select the best one. Those models and their metrics are listed in Table 2 in the Appendix.
+For model comparison, we used **bridgesampling** R package by Gronau et al. [-@2017arXiv171008162G] to calculate the log marginal likelihood and posterior probability of each model. Then we used the same package to calculate the Bayes factor of the top candidates and interpreted it within the Kass and Raftery framework [-@doi:10.1080/01621459.1995.10476572] to select the best one. Those models and their metrics are listed in Table 3 in the Appendix.
 
-The final model of Google-referred traffic $y_t$ (measured as millions of pageviews) is ARMA(3,2) with overall mean $\mu$, linear trend $\beta_0$, Normally-distributed noise $\epsilon_t$ (having standard deviation $\sigma$), regressors $\mathbf{x}$ with coefficients $\mathbf{\beta}$, and a Gompertz model of change-due-to-intervention $z_t$ (Eq. 1):
+The final, hierarchical model of $N$ days of Google-referred traffic $y_t$ (measured as millions of pageviews) is ARMA(3,2) with overall mean $\mu$, Normally-distributed noise $\epsilon_t$ (having standard deviation $\sigma$), a regression component with $K$ continuous predictors $\mathbf{x}$ (e.g. $x_{t,1} = t$ is the linear trend over time), a categorical predictor as random intercepts $\mathbf{\alpha}$ to model the weekly seasonality, and a Gompertz model of change-due-to-intervention $z_t$ (Eq. 1):
 
 \begin{align*}
-y_t & = \mu + \sum_{p = 1}^3 \phi_p y_{t - p} + \sum_{q = 1}^2 \theta_q \epsilon_{t - q} + \beta_0 t + \sum_{k = 1}^6 \beta_k x_{t,k} + z_t + \epsilon_t;\\
+y_t & = \alpha_{m(t)} + \sum_{p = 1}^3 \phi_p y_{t - p} + \sum_{q = 1}^2 \theta_q \epsilon_{t - q} + \sum_{k = 1}^K \beta_k x_{t,k} + z_t + \epsilon_t;\\
 z_t & = \delta_0 \mathrm{e}^{-d \mathrm{e}^{-\lambda (t - T)}} I_t,
 \end{align*}
 
-where $T$ marks the deployment of the sitemaps and $I_t = 1$ for $t \geq T$ (and 0 otherwise) as before. The underlying intervention effect of interest $\delta_0$ is inferred using [Bayesian inference](https://en.wikipedia.org/wiki/Bayesian_inference). The model's parameters had the following [priors](https://en.wikipedia.org/wiki/Prior_probability):
+where $T$ marks the deployment of the sitemaps, $I_t = 1$ for $t \geq T$ (and 0 otherwise) as before, and $m(t)$ is a pointer to the appropriate $\alpha_m$ for the $t$-th observation. The underlying intervention effect of interest $\delta_0$ is inferred using [Bayesian inference](https://en.wikipedia.org/wiki/Bayesian_inference). The model's parameters had the following [priors](https://en.wikipedia.org/wiki/Prior_probability):
 
 \begin{align*}
-  \phi_p, \theta_q & \sim \text{Cauchy}(0, 1),~-1 \leq \phi_p, \theta_q \leq 1, p = 1, 2, q = 1, 2;\\
-  \sigma, \tau & \sim \text{Cauchy}(0, 5),~\sigma > 0;\\
-  \beta_0, \beta_k & \sim \mathcal{N}(0, 10),~k = 0, \ldots, 6;\\
-  \mu & \sim \mathcal{N}(8, 4);\\
+  \phi_p, \theta_q & \sim \text{Cauchy}(0, 1),~-1 \leq \phi_p, \theta_q \leq 1, p = 1, \ldots, 3~\text{and}~q = 1, 2;\\
+  \alpha_m & \sim \mathcal{N}(\mu_\alpha, \sigma_\alpha),~m = 1, \ldots, M;\\
+  \epsilon & \sim \mathcal{N}(0, \sigma_\epsilon);\\
+  \delta_0 & \sim \mathcal{N}(0, \tau);\\
+  \sigma_\epsilon, \sigma_\alpha, \tau & \sim \text{Cauchy}(0, 5),~\sigma_\epsilon, \sigma_\alpha, \tau > 0;\\
+  \beta_k & \sim \mathcal{N}(0, 10),~k = 0, \ldots, K;\\
   d & \sim \mathcal{N}(7, 5);~\text{and}\\
   \lambda & \sim \mathcal{N}(0, 2),~0 < \lambda < 5.
 \end{align*}
@@ -64,3 +65,7 @@ Some of the priors are very informative, and the following is our reasoning:
 
 - it takes time for Google and other search engines to ingest the newly deployed sitemaps and update their indices, so we're centering the Normal prior on $d$ at 7 (days),
 - based on our exploration of different values of $\lambda$, we assign it higher probability at 0-3 with a $\mathcal{N}(0, 2)$ prior and restrict it to 5 (which is *very* steep -- indicating near-immediate change -- and much less likely).
+
+Categorical predictors such as days of the week and months are represented as random intercepts $\alpha$ in the model. For days of the week, there are $\alpha_1, \ldots, \alpha_7$ (representing Sunday--Monday). In case of search engine traffic, we have $\alpha_1, \ldots, \alpha_{12}$ to represent the months as random intercepts and $\beta_2, \ldots, \beta_7$ to represent the effect of days of the week (relative to Sunday so as to avoid the [dummy variable trap](https://en.wikipedia.org/wiki/Dummy_variable_(statistics)#Incorporating_a_dummy_independent)).[^complexity]
+
+[^complexity]: **Note**: we cannot model both days of the week and months as random intercepts unless we also model their interaction, which would increase the complexity of the model *quite a bit*. Since traffic from all recognized search engines was not the main point of interest, we chose the simpler model that we could still learn a lot from.
