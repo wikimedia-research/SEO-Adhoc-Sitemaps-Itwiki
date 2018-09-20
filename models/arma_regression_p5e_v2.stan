@@ -4,17 +4,15 @@ functions {
     }
 }
 data {
-  int<lower = 1> N;       // number of observations
-  real y[N];              // observed time series
-  int<lower = 1> T;       // time of sitemaps deployment
-  int<lower = 1> p;       // number of AR terms
-  int<lower = 1> q;       // number of MA terms
-  int<lower = 1> K;       // number of continuous predictors
-  matrix[N, K] x;         // predictor matrix of continuous variables, incl. t for linear trend
-  int<lower = 1> M;       // number of categorical predictors
-  int<lower = 1> J[M];    // number of levels of each m-th categorical predictor
-  int<lower = 1> J_max;   // largest number of categories among M predictors
-  int<lower = 1> c[N, M]; // predictor matrix of categorical variables
+  int<lower = 1> N;               // number of observations
+  real y[N];                      // observed time series
+  int<lower = 1> T;               // time of sitemaps deployment
+  int<lower = 1> p;               // number of AR terms
+  int<lower = 1> q;               // number of MA terms
+  int<lower = 1> K;               // number of continuous predictors
+  matrix[N, K] x;                 // predictor matrix of continuous variables, incl. t for linear trend
+  int<lower = 1> M;               // number of random intercepts
+  int<lower = 1, upper = M> c[N]; // which of M intercepts to use for t-th observation
 }
 parameters {
   real<lower = 0> sigma;                // standard deviation of noise
@@ -23,28 +21,26 @@ parameters {
   real<lower = -1, upper = 1> phi[p];   // AR(p) coefficients
   real<lower = -1, upper = 1> theta[q]; // MA(q) coefficients
   vector[K] beta;                       // coefficients for continuous predictors
-  vector[M] alpha0;                     // centers of the M predictors, for better sampling
-  matrix[M, J_max] alpha_change;        // differentials for M categorical predictors
+  real alpha_mean;                      // group mean for the categorical predictor
+  real alpha_offset[M];                 // differentials
+  real<lower = 0> alpha_stddev;         // standard deviation of the random intercepts
   real<lower = 0, upper = 5> lambda;    // Gompertz growth rate
   real<lower = 1> d;                    // Gompertz displacement along t
 }
 transformed parameters {
-  matrix[M, J_max] alpha; // coefficients for M categorical predictors
+  real alpha[M]; // random intercepts
   for (m in 1:M) {
-    for (j in 1:(J[m])) {
-      alpha[m, j] = alpha0[m] + alpha_change[m, j];
-    }
+    alpha[m] = alpha_mean + alpha_stddev * alpha_offset[m];
   }
 }
 model {
   vector[N] epsilon; // error/noise at time t
   // priors
+  alpha_mean ~ normal(0, 10);
   for (m in 1:M) {
-    alpha0[m] ~ normal(0, 10);
-    for (j in 1:(J[m])) {
-      alpha_change[m, j] ~ normal(0, 10);
-    }
+    alpha_offset[m] ~ normal(0, 1);
   }
+  alpha_stddev ~ cauchy(0, 5);
   sigma ~ cauchy(0, 5);
   tau ~ cauchy(0, 5);
   delta0 ~ normal(0, tau);
@@ -59,10 +55,7 @@ model {
   }
   for (t in (max(p, q) + 1):N) {
     real z = 0;
-    real nu = x[t, ] * beta;
-    for (m in 1:M) {
-      nu += alpha[m, c[t, m]];
-    }
+    real nu = alpha[c[t]] + x[t, ] * beta;
     if (t >= T) {
       z += gompertz(t - T, delta0, d, lambda);
     }
@@ -90,17 +83,11 @@ generated quantities {
     }
   }
   for (t in 1:max(p, q)) {
-    real nu = x[t, ] * beta;
-    for (m in 1:M) {
-      nu += alpha[m, c[t, m]];
-    }
+    real nu = alpha[c[t]] + x[t, ] * beta;
     yhat[t] = nu + z[t];
   }
   for (t in (max(p, q) + 1):N) {
-    real nu = x[t, ] * beta + z[t];
-    for (m in 1:M) {
-      nu += alpha[m, c[t, m]];
-    }
+    real nu = alpha[c[t]] + x[t, ] * beta + z[t];
     for (i in 1:p) {
       nu += phi[i] * y[t - i];
     }
