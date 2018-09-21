@@ -4,6 +4,11 @@ load_and_do <- function(path, .f, ...) {
   return(.f(x, ...))
 }
 
+compress <- function(x, ...) {
+  y <- polloi::compress(abs(x, ...))
+  return(paste0(ifelse(x < 0, "-", ""), y))
+}
+
 hpd_interval <- function(x, ...) {
   return(broom::tidyMCMC(
     x, estimate.method = "median", rhat = TRUE, droppars = "lp__",

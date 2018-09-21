@@ -7,7 +7,7 @@ output:
 
 \normalsize
 
-```{r, include=FALSE}
+```{r appendix_setup, include=FALSE}
 library(knitr); library(kableExtra)
 opts_chunk$set(
   echo = FALSE, message = FALSE, warning = FALSE
@@ -42,7 +42,7 @@ prior_probs <- function(model_names, opinionated) {
 
 \section*{Appendix}
 
-```{r model_summary}
+```{r appendix_model_summary}
 google_desktop_traffic_fit <- readr::read_rds(here("fits2", "fit_arma32r5ev2.rds"))
 posterior_summary <- broom::tidyMCMC(
   google_desktop_traffic_fit,
@@ -68,7 +68,7 @@ posterior_summary %>%
     col.names = c("Parameter", "Estimate (Standard Error)", "95\\% HPD Interval"),
     caption = "Estimates and confidence intervals for parameters in the model of desktop traffic to the Italian Wikipedia from Google. The model was fit to pageview counts \\emph{in millions}. For example, when reading the table, $\\alpha_1 = 1.461$ indicates 1.46M pageviews on average on Sunday."
   ) %>%
-  kable_styling(latex_options = c("striped", "hold_position", "scale_down")) %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
   group_rows(index = c(
     "Intervention effect as Gompertz function" = 4,
     "Weekly seasonality as random intercepts" = 9,
@@ -78,7 +78,7 @@ posterior_summary %>%
   ))
 ```
 
-```{r marginal_likelihoods}
+```{r appendix_marginal_likelihoods}
 if (file.exists(here("fits_index.csv"))) fits <- readr::read_csv(here("fits_index.csv"))
 delta0_hpd <- readr::read_csv(here("results", "delta0_hpd.csv")) %>% refine_hpd
 marginal_likelihoods <- set_names(as.list(fits$lml_path), fits$model) %>%
@@ -109,7 +109,7 @@ marginal_likelihoods %>%
     col.names = c("Time Series", "log L", "Pr(Model)", "Estimate (SE)", "95% CI"),
     caption = "Comparison metrics -- log marginal likelihood and posterior model probability (probability of model given data) -- of various models of desktop traffic from Google, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$ and growth rate $\\lambda$. These were quickly fitted to get a sense of which model to go with, so the estimates in the final model differ due to more extensive MCMC sampling."
   ) %>%
-  kable_styling(latex_options = c("striped", "hold_position", "scale_down")) %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
   add_header_above(c(
     "Model Specification" = 1, "Model Metrics" = 2,
     "Intervention Effect ($\\\\delta_0$)" = 2

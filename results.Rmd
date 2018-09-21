@@ -3,7 +3,7 @@ source("summarizing.R")
 ```
 ```{r search_engine_traffic}
 search_engine_traffic_model <- "ARMA(7,5) w/ Gompertz change & regressors"
-search_engine_traffic_fit <- readr::read_rds("test/fit_arma75r5ev2.rds")
+search_engine_traffic_fit <- readr::read_rds("fits2/fit_arma75r5ev2.rds")
 ```
 ```{r google_desktop_traffic}
 google_desktop_traffic_model <- "ARMA(3,2) w/ Gompertz change & regressors"
@@ -19,10 +19,6 @@ posterior_samples <- list(
   `Desktop traffic from Google` = broom::tidyMCMC(google_desktop_traffic_fit, pars = c("delta0", "alpha_mean", "z"), estimate.method = "median", conf.int = TRUE, conf.method = "HPDinterval", conf.level = 0.95) %>%
     dplyr::mutate(date = as.Date(c(NA, NA, as.character(google_traffic$date))))
 ) %>% dplyr::bind_rows(.id = "dataset")
-compress <- function(x, ...) {
-  y <- polloi::compress(abs(x, ...))
-  return(paste0(ifelse(x < 0, "-", ""), y))
-}
 posterior_samples %>%
   dplyr::filter(
     term %in% c("delta0", "alpha_mean"),
@@ -46,13 +42,13 @@ posterior_samples %>%
   kable_styling(latex_options = c("hold_position"))
 ```
 
-The effect of the sitemaps ($\delta_0$) has been found to be an additional 744K pageviews (95% CI: 233K--128M), an increase of 42.76% from the daily average of 1.74M. Based on these results, we strongly recommend creating sitemaps for other wikis and submitting them to various search engines' webmaster tools, not just Google Search Console. Although Google accounts for 90% of all search engine-referred traffic,[^seprop] we would still benefit from submitting them to Yahoo (3-4%) and Bing (2-3%) webmaster tools.
+The effect of the sitemaps ($\delta_0$) has been found to be an additional 744K pageviews (95% CI: 233K--1.28M), an increase of 42.76% from the daily average of 1.74M. Based on these results, we strongly recommend creating sitemaps for other wikis and submitting them to various search engines' webmaster tools, not just Google Search Console. Although Google accounts for 90% of all search engine-referred traffic[^seprop] and 92-94% in case of the Italian Wikipedia, we would still benefit from submitting them to Yahoo (3-4%) and Bing (2-3%) webmaster tools.
 
 [^seprop]: Source: https://discovery.wmflabs.org/external/#traffic_by_engine
 
 While an impact of almost 1M pageviews appears quite impressive, the results warrant further, more rigorous testing. Specifically, the dataset we worked with had two major issues which can be easily overcome in further tests of sitemap impact:
 
-- _**lack of per-engine data**_, which we can overcome by begining to collect per-engine traffic data earlier (this would enable us to more reliably detect the effect of sitemaps on traffic from specific search engines that we submitted the sitemaps to), and
+- _**lack of per-engine data**_, which we can overcome by beginning to collect per-engine traffic data earlier (this would enable us to more reliably detect the effect of sitemaps on traffic from specific search engines that we submitted the sitemaps to), and
 - _**redirect artefact**_, which we did not have time to account for in the model and which will not be an issue for other wikis.
 
 We also fit a similar model to desktop traffic from all recognized search engines, but with an ARMA(7,5) base model of the time series, with months as the random intercepts, and with days of the week as dummy variables in the linear regression component (making their coefficients relative to Sunday). Figure 7 shows the estimates of average traffic by month, with December & August having lowest traffic and January, February, May, and November having highest traffic compared to the other months of the year -- which we saw in Fig. 2. Figure 7 also shows the estimates of average traffic by day of the week -- relative to Sunday (because of how dummy variables in linear regression are required to be specified) -- with lowest traffic on weekends (Saturday much lower than Sunday) and highest traffic on Mondays and Wednesdays.
