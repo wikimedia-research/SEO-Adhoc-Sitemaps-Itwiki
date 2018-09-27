@@ -143,6 +143,10 @@ itwiki_pageviews %>%
 ```{r results, child="results.Rmd"}
 ```
 
+# Acknowledgements
+
+We would like to give a special thanks to Tilman Bayer, whose feedback and criticism immensely aided the analysis presented in this paper.
+
 \clearpage
 
 # References

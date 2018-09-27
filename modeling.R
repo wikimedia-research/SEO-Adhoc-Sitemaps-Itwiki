@@ -2,15 +2,15 @@ source("modeling_core.R")
 source("data.R")
 
 model_data <- list(
-  y = google_traffic$pageviews,
-  N = nrow(google_traffic),
-  T = submission_day
+  y = itwiki_pvs$desktop,
+  N = nrow(itwiki_pvs),
+  T = event_days["sitemap deployment & GSC submission"]
 )
 
 models <- expand.grid(
   model_name = names(stan_models),
-  p = c(2, 3),
-  q = 0:3,
+  p = c(1, 2, 3),
+  q = c(0, 1, 2, 3),
   stringsAsFactors = FALSE
 ) %>%
   dplyr::filter(
@@ -24,13 +24,14 @@ models <- expand.grid(
     )
   ) %>%
   dplyr::distinct() %>%
-  dplyr::filter(grepl("regressors", model_name), grepl("v2", model_name)) %>%
-  dplyr::filter((p > 1) | (p == 1 & q >= 1)) %>%
+  dplyr::filter(grepl("regressors", model_name), grepl("\\(v[23]{1}\\)", model_name)) %>%
+  # dplyr::filter((p > 1) | (p == 1 & q >= 1)) %>%
   dplyr::arrange(model_name, p, q)
 
 fits <- pmap_dfr(
-  models, fit_stan_model, model_data = model_data, creg = google_traffic$weekday,
-  fit_dir = "fits", stan_iter = 4e3, stan_control = list(adapt_delta = 0.99)
+  models, fit_stan_model, model_data = model_data, creg = itwiki_pvs$month, dates = itwiki_pvs$date,
+  xreg = mlr::createDummyFeatures(itwiki_pvs[, "weekday", drop = FALSE], method = "reference"),
+  fit_dir = "fits", stan_iter = 5e3, stan_control = list(adapt_delta = 0.999)
 )
 
 # Run locally:
@@ -53,8 +54,10 @@ set_names(as.list(fits$fit_path), fits$model) %>%
     append = file.exists(here("results", "delta0_hpd.csv"))
   )
 
-fit_stan_model("ARMA({p},{q}) w/ Gompertz change & regressors (v2)", p = 3, q = 2,
-               model_data = model_data,
-               creg = google_traffic$weekday, # random intercepts
-               stan_control = list(adapt_delta = 0.9999, max_treedepth = 15), stan_iter = 1e4,
-               fit_dir = "fits2", file_name = "arma32r5ev2.rds")
+fit_stan_model(
+  "ARMA({p},{q}) w/ levelling-off change & regressors (v3)",
+  model_data = model_data, p = 3, q = 2, creg = NULL, dates = itwiki_pvs$date,
+  xreg = mlr::createDummyFeatures(itwiki_pvs[, "weekday", drop = FALSE], method = "reference"),
+  stan_control = list(adapt_delta = 0.9999, max_treedepth = 15), stan_iter = 3e3,
+  fit_dir = "fits2", file_name = "arma32r3ev3.rds"
+)

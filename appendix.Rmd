@@ -20,22 +20,8 @@ refine_hpd <- function(hpd_summary) {
       est = sprintf("%.3f (%.3f)", estimate, std.error),
       ci95 = sprintf("(%.3f, %.3f)", conf.low, conf.high)
     ) %>%
-    dplyr::select(Model = model, est, ci95)
+    dplyr::select(-c(estimate, std.error, conf.low, conf.high))
   return(refined)
-}
-prior_probs <- function(model_names, opinionated) {
-  if (opinionated) {
-    unnormalized <- purrr::map_dbl(model_names, function(model_name) {
-      prior_prob <- 0.5
-      if (grepl("regressors", model_name)) prior_prob <- prior_prob + 0.2
-      if (grepl("Gompertz", model_name)) prior_prob <- prior_prob + 0.1
-      return(prior_prob)
-    })
-  } else {
-    unnormalized <- rep(0.5, length(model_names))
-  }
-  normalized <- unnormalized / sum(unnormalized)
-  return(normalized)
 }
 ```
 
@@ -84,34 +70,33 @@ delta0_hpd <- readr::read_csv(here("results", "delta0_hpd.csv")) %>% refine_hpd
 marginal_likelihoods <- set_names(as.list(fits$lml_path), fits$model) %>%
   purrr::map(readr::read_rds) %>%
   purrr::map_df(~ dplyr::data_frame(logL = .x$logml), .id = "Model") %>%
-  dplyr::mutate(
-    post_prob = bridgesampling::post_prob(logL, prior_prob = prior_probs(Model, opinionated = FALSE)),
-    logL = dplyr::if_else(logL < -500, "< -500", sprintf("%.2f", logL))
-  )
+  dplyr::mutate(post_prob = bridgesampling::post_prob(logL))
 marginal_likelihoods %>%
   dplyr::mutate(post_prob = sprintf("%.3f%%", 100 * post_prob)) %>%
   dplyr::left_join(delta0_hpd, by = "Model") %>%
   dplyr::mutate_all(dplyr::funs(replace(., is.na(.), "--"))) %>%
   dplyr::mutate(
-    # change = factor(dplyr::case_when(
-    #   grepl("instant", Model) ~ 1,
-    #   grepl("levelling-off", Model, fixed = TRUE) ~ 2,
-    #   grepl("Gompertz", Model) & grepl("(v2)", Model, fixed = TRUE) ~ 4,
-    #   grepl("Gompertz", Model) ~ 3
-    # ), 1:4, c("Instant, constant", "Gradual level-off", "Gompertz function", "Gompertsz (v2)")),
-    # regression = factor(grepl("regressors", Model), c(FALSE, TRUE), c("No", "Yes")),
+    change = factor(dplyr::case_when(
+      grepl("levelling-off", Model, fixed = TRUE) ~ 1,
+      grepl("Gompertz", Model) ~ 2,
+    ), 1:2, c("Gradual level-off", "Gompertz function")),
+    intercept = factor(dplyr::case_when(
+      grepl("levelling-off", Model, fixed = TRUE) & grepl("(v2)", Model, fixed = TRUE) ~ 1,
+      grepl("levelling-off", Model) & grepl("(v3)", Model, fixed = TRUE) ~ 2,
+      grepl("Gompertz", Model) & grepl("(v2)", Model, fixed = TRUE) ~ 3,
+    ), 1:3, c("Month", "Day of year", "Month")),
     Model = sub("w\\/.*", "", Model),
   ) %>%
-  dplyr::select(Model, logL, post_prob, dplyr::everything()) %>%
+  dplyr::select(Model, intercept, change, logL, post_prob, dplyr::everything()) %>%
   dplyr::arrange(Model) %>%
   kable(
-    align = c("l", "r", "r", "r", "c"), booktabs = TRUE, linesep = "",
-    col.names = c("Time Series", "log L", "Pr(Model)", "Estimate (SE)", "95% CI"),
-    caption = "Comparison metrics -- log marginal likelihood and posterior model probability (probability of model given data) -- of various models of desktop traffic from Google, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$ and growth rate $\\lambda$. These were quickly fitted to get a sense of which model to go with, so the estimates in the final model differ due to more extensive MCMC sampling."
+    align = c("l", "l", "l", "r", "r", "r", "c"), booktabs = TRUE, linesep = "",
+    col.names = c("Time Series", "Intercept", "Change Model", "log L", "Pr(Model)", "Estimate (SE)", "95% CI"),
+    caption = "Comparison metrics -- log marginal likelihood and posterior model probability (probability of model given data) -- of various models of desktop traffic from search engines, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$. These were quickly fitted to aid model selection, so the estimates in the final model differ due to more extensive MCMC sampling for final inference."
   ) %>%
   kable_styling(latex_options = c("striped", "hold_position")) %>%
   add_header_above(c(
-    "Model Specification" = 1, "Model Metrics" = 2,
+    "Model Specification" = 3, "Model Metrics" = 2,
     "Intervention Effect ($\\\\delta_0$)" = 2
   ), escape = FALSE)
 ```

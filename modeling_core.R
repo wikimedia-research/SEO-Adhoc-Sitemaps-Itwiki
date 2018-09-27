@@ -22,33 +22,63 @@ stan_models <- list(
   stan_model("models/ar_regression_p5e.stan", model_name = "AR({p}) w/ Gompertz change & regressors" ),
   stan_model("models/arma_p5e.stan", model_name = "ARMA({p},{q}) w/ Gompertz change"),
   stan_model("models/arma_regression_p5e.stan", model_name = "ARMA({p},{q}) w/ Gompertz change & regressors"),
-  stan_model("models/arma_regression_p5e_v2.stan", model_name = "ARMA({p},{q}) w/ Gompertz change & regressors (v2)")
+  stan_model("models/arma_regression_p5e_v2.stan", model_name = "ARMA({p},{q}) w/ Gompertz change & regressors (v2)"),
+  stan_model("models/arma_regression_p3e_v2.stan", model_name = "ARMA({p},{q}) w/ levelling-off change & regressors (v2)"),
+  stan_model("models/arma_regression_p3e_v3.stan", model_name = "ARMA({p},{q}) w/ levelling-off change & regressors (v3)")
 )
 stan_models %<>% set_names(map_chr(stan_models, ~ .x@model_name))
 
-prepare_predictors <- function(N, xreg = NULL, creg = NULL) {
-  if (is.null(xreg)) {
-    message("Creating a linear trend component")
-    xreg <- matrix(1:N, ncol = 1)
+prepare_predictors <- function(N, xreg = NULL, creg = NULL, version = c(2, 3)) {
+  version <- version[1]
+  if (!version %in% c(2, 3)) stop("version must be 2 or 3")
+  if (version == 2) {
+    if (is.null(xreg)) {
+      message("Creating a linear trend component")
+      xreg <- matrix(1:N, ncol = 1)
+    } else {
+      message("Prepending a linear trend component")
+      xreg <- cbind(t = 1:N, xreg)
+    }
+    # Create an intercept if there are no categorical predictors:
+    if (is.null(creg)) {
+      message("Creating an intercept")
+      creg <- rep.int(1, N)
+      M <- 1
+    } else {
+      message("Converting factors into an alpha index")
+      creg <- as.integer(creg)
+      M <- max(creg)
+    }
+    return(list(x = xreg, c = creg, M = M))
   } else {
-    message("Prepending a linear trend component")
-    xreg <- cbind(t = 1:N, xreg)
+    # model version 3 where creg is a vector of N dates
+    if (is.null(xreg)) {
+      message("Creating a linear trend component")
+      xreg <- matrix(1:N, ncol = 1)
+    } else {
+      message("Prepending a linear trend component")
+      xreg <- cbind(t = 1:N, xreg)
+    }
+    if (is.null(creg)) stop("creg must not be null")
+    if (!class(creg) %in% c("Date", "POSIXct")) stop("creg must be Date or POSIXct")
+    yd <- as.integer(lubridate::yday(creg))
+    # adjust in case of leap years:
+    # e.g. 2016-03-01 should have yday of 60 but that's taken by 2016-02-29
+    # so to normalize it, we need to take the subset of dates which fall on
+    # leap years AND come after Feb 29th and then subtract 1 from their yday
+    affected_idx <- lubridate::leap_year(creg) & yd >= 61
+    yd[affected_idx] <- yd[affected_idx] - 1
+    # resume:
+    D <- max(yd)
+    M <- max(as.integer(lubridate::month(creg)))
+    if (D > 365 || M > 12) stop("maximum 365 days & 12 months per year allowed")
+    return(list(x = xreg, D = D, M = M, yd = yd))
   }
-  # Create an intercept if there are no categorical predictors:
-  if (is.null(creg)) {
-    message("Creating an intercept")
-    creg <- rep.int(1, N)
-    M <- 1
-  } else {
-    message("Converting factors into an alpha index")
-    creg <- as.integer(creg)
-    M <- max(creg)
-  }
-  return(list(x = xreg, c = creg, M = M))
 }
 
-fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, creg = NULL,
-                           n_chains = 4, stan_control = list(adapt_delta = 0.999), stan_iter = 6e3,
+fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, creg = NULL, dates = NULL,
+                           n_chains = 4, stan_control = list(adapt_delta = 0.99),
+                           stan_iter = 2e3, stan_warmup = floor(stan_iter / 2),
                            ...) {
   # model_data is a list with components N, T, y
   if (!all(c("N", "T", "y") %in% names(model_data))) {
@@ -68,15 +98,23 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, c
     model_data$q <- q
   }
   model_uses_regression <- grepl("regressors", model_name)
-  reparameterized_model <- grepl("(v2)", model_name, fixed = TRUE)
+  reparameterized_model <- grepl("v[23]", model_name)
   if (model_uses_regression) {
     message("Preparing predictor matrix/matrices")
     if (reparameterized_model) {
-      regressors <- prepare_predictors(N, xreg, creg)
+      if (grepl("(v2)", model_name, fixed = TRUE)) {
+        regressors <- prepare_predictors(N, xreg, creg, version = 2)
+        model_data$c <- regressors$c
+        model_data$M <- regressors$M
+      } else {
+        if (is.null(dates)) stop("v3 of the model requires dates")
+        regressors <- prepare_predictors(N, xreg, dates, version = 3)
+        model_data$yd <- regressors$yd
+        model_data$D <- regressors$D
+        model_data$M <- regressors$M
+      }
       model_data$x <- regressors$x
       model_data$K <- ncol(regressors$x)
-      model_data$c <- regressors$c
-      model_data$M <- regressors$M
     } else {
       message("Creating M-1 dummy variables from M categories")
       x <- mlr::createDummyFeatures(creg, method = "reference")
@@ -100,7 +138,13 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, c
   if (q > 0) {
     inits$theta <- array(constrain(unname(arima_coefs[grepl("^ma[1-9]", names(arima_coefs))])), dim = q)
   }
-  if (model_uses_regression && !reparameterized_model) inits$mu <- arima_coefs["intercept"]
+  if (model_uses_regression && !reparameterized_model) {
+    inits$mu <- arima_coefs["intercept"]
+  } else if (grepl("(v2)", model_name, fixed = TRUE)) {
+    inits$alpha_mean <- mean(model_data$y)
+  } else if (grepl("(v3)", model_name, fixed = TRUE)) {
+    inits$gamma_mean <- mean(model_data$y)
+  }
   initf <- function() {
     inits <- inits
     if (grepl("Gompertz", model_name)) {
@@ -115,7 +159,7 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, c
   message("Starting MCMC sampling")
   fit <- sampling(
     stan_models[[model_name]], data = model_data,
-    control = stan_control, iter = stan_iter,
+    control = stan_control, iter = stan_iter, warmup = stan_warmup,
     chains = n_chains, init = initf
   )
   # Save samples and log marginal likelihoods:
