@@ -5,7 +5,7 @@ We explored a variety of [autoregressive (AR) models](https://en.wikipedia.org/w
   - month as the random intercept (total of 12)
   - day of the year as the random intercept (total of 365)
 - days of the week as predictor variables in the regression component (as dummy variables)
-- **model of intervention impact $\delta_0$ at time $T$:
+- **models of intervention impact** $\delta_0$ at time $T$:
   - immediate, constant change $z_t = \delta_0 I_t$
   - gradually levelling-off change: $z_t = \omega_1 z_{t-1} + \delta_0 I_t$
   - ramping-up, then gradually levelling-off ("S"-shaped) [Gompertz function](https://en.wikipedia.org/wiki/Gompertz_function) change: $z_t = \delta_0 \mathrm{e}^{-d \mathrm{e}^{-\lambda (t - T)}} I_t$
@@ -15,9 +15,9 @@ with indicator $I_t = 1$ for $t >= T$ and $I_t = 0$ otherwise in all cases. The 
 ```{r dataviz_change_comparison, fig.width=12, fig.height=4, fig.pos="h", out.extra = "", fig.cap="These three models show how the same intervention effect may express itself in multiple ways."}
 c(N, T, delta0, omega1, lambda, d) %<-% c(20, 5, 1, 0.6, 0.5, 7)
 z <- dplyr::bind_rows(list(
-  A = data.frame(t = T:N, z = delta0),
+  A = data.frame(t = T:N, z = (delta0 / (1 - omega1))),
   B = data.frame(t = T:N, z = delta0 * (1 - (omega1 ^ ((T:N) - T + 1))) / (1 - omega1)),
-  C = data.frame(t = T:N, z = delta0 * exp(-d * exp(-lambda * ((T:N) - T))))
+  C = data.frame(t = T:N, z = (delta0 / (1 - omega1)) * exp(-d * exp(-lambda * ((T:N) - T))))
 ), .id = "change model") %>%
   dplyr::mutate(`change model` = factor(`change model`, c("A", "B", "C"), c("instant, constant", "gradually levelling-off", "Gompertz")))
 ggplot(z, aes(x = t, y = z)) +
@@ -25,13 +25,14 @@ ggplot(z, aes(x = t, y = z)) +
   geom_vline(xintercept = T, linetype = "dashed") +
   facet_wrap(~ `change model`, ncol = 3) +
   geom_line(data = data.frame(t = 1:T, z = 0), color = "black") +
-  wmf::theme_facet(14) +
+  scale_y_continuous(limits = c(0, (delta0 / (1 - omega1)) + 1)) +
   labs(
     y = expression(z[t]), x = "t", color = "Change applied to time series",
-    title = expression("Models of change-due-to-intervention"~z[t]~at~T==10~"with effect"~delta[0]==1),
-    subtitle = expression(
-      omega[1]==0.6~"in gradual model"~z[t]==omega[1]*z[t-1]+delta[0]*I[t]~", and "~lambda==0.5~"in Gompertz model"~z[t]==delta[0]*e^(-7*e^(-lambda*(t-T)))
-    )
+    title = expression("Models of change-due-to-intervention"~z[t]~at~T==10)
+  ) +
+  wmf::theme_facet(
+    14, axis.text.y = element_blank(),
+    panel.grid.major.y = element_blank(), panel.grid.minor.y = element_blank()
   )
 ```
 
@@ -39,32 +40,23 @@ All modeling was done with the [Stan](https://en.wikipedia.org/wiki/Stan_(softwa
 
 For model comparison, we used **bridgesampling** R package by Gronau et al. [-@2017arXiv171008162G] to calculate the log marginal likelihood and posterior probability of each model. Then we used the same package to calculate the Bayes factor of the top candidates and interpreted it within the Kass and Raftery framework [-@doi:10.1080/01621459.1995.10476572] to select the best one. Those models and their metrics are listed in Table 3 in the Appendix.
 
-The final, hierarchical model of $N$ days of search engine-referred traffic $y_t$ (measured as millions of pageviews) is ARMA(?,?) with day-of-year random intercept, Normally-distributed noise, a regression component of continuous predictors $\mathbf{x}$ (e.g. $x_{t,1} = t$ is the linear trend over time), and change-due-to-intervention $z_t$:
-
+The final, hierarchical model of daily search engine-referred desktop traffic $y_t$ (measured as millions of pageviews) is ARMA(2,1) with day-of-year random intercepts $\alpha_d$, Normally-distributed noise $\epsilon_t$, a regression component of continuous predictors $\mathbf{x}$ (e.g. $x_{t,1} = t$ is the linear trend over time) with coefficients $\beta_k$, and change-due-to-intervention $z_t$:
 \begin{align*}
-y_t & = \alpha_{d(t)} + \sum_{p = 1}^3 \phi_p y_{t - p} + \sum_{q = 1}^2 \theta_q \epsilon_{t - q} + \sum_{k = 1}^K \beta_k x_{t,k} + z_t + \epsilon_t;\\
-z_t & = z_t = \omega_1 z_{t-1} + \delta_0 I_t,
+y_t & = \alpha_{d(t)} + \phi_1 y_{t - 1} + \phi_2 y_{t - 2} + \theta_1 \epsilon_{t - 1} + \sum_{k = 1}^K \beta_k x_{t,k} + z_t + \epsilon_t;\\
+z_t & = \omega_1 z_{t-1} + \delta_0 I_t = \frac{\delta_0 (1 - \omega_1^{(t - T + 1)})}{(1 - \omega_1)},
 \end{align*}
+where $T$ marks the deployment of the sitemaps, $I_t = 1$ for $t \geq T$ (and 0 otherwise) as before, and $d(t)$ is a pointer to the appropriate $\alpha_d$ for the $t$-th observation. In the model we have $\beta_2, \ldots, \beta_7$ to represent the effect of days of the week (relative to Sunday so as to avoid the [dummy variable trap](https://en.wikipedia.org/wiki/Dummy_variable_(statistics)#Incorporating_a_dummy_independent)).
 
-where $T$ marks the deployment of the sitemaps, $I_t = 1$ for $t \geq T$ (and 0 otherwise) as before, and $d(t)$ is a pointer to the appropriate $\alpha_d$ for the $t$-th observation. The underlying intervention effect of interest $\delta_0$ is inferred using [Bayesian inference](https://en.wikipedia.org/wiki/Bayesian_inference). The model's parameters had the following [priors](https://en.wikipedia.org/wiki/Prior_probability):
-
+The underlying intervention effect of interest $\delta_0$ is inferred using [Bayesian inference](https://en.wikipedia.org/wiki/Bayesian_inference). The model's parameters had the following [priors](https://en.wikipedia.org/wiki/Prior_probability):
 \begin{align*}
-  \phi_p, \theta_q & \sim \text{Cauchy}(0, 1),~-1 \leq \phi_p, \theta_q \leq 1, p = 1, \ldots, 3~\text{and}~q = 1, 2;\\
-  \alpha_d & \sim \mathcal{N}(\gamma_m(d), \sigma_{\alpha_m(d)}),~d = 1, \ldots, 365;\\
+  \phi_p, \theta_1 & \sim \text{Cauchy}(0, 1),~-1 \leq \phi_p, \theta_q \leq 1~\text{for}~p = 1, 2;\\
+  \alpha_d & \sim \mathcal{N}(\gamma_{m(d)}, \sigma_{\alpha_{m(d)}}),~d = 1, \ldots, 365;\\
   \gamma_m & \sim \mathcal{N}(\mu_\gamma, \sigma_\gamma),~m = 1, \ldots, 12;\\
-  \mu_\gamma & \sim \mathcal{N}(0, 10);\\
+  \mu_\gamma, \beta_k & \sim \mathcal{N}(0, 10),~k = 0, \ldots, K;\\
   \epsilon & \sim \mathcal{N}(0, \sigma_\epsilon);\\
   \delta_0 & \sim \mathcal{N}(0, \tau);\\
   \sigma_\epsilon, \sigma_{\alpha_m}, \sigma_\gamma, \tau & \sim \text{Cauchy}(0, 5);\\
-  \beta_k & \sim \mathcal{N}(0, 10),~k = 0, \ldots, K;\\
   \omega_1 & \sim \text{Beta}(9, 3).
 \end{align*}
 
-Some of the priors are very informative, and the following is our reasoning:
-
-- it takes time for Google and other search engines to ingest the newly deployed sitemaps and update their indices, so we're centering the Normal prior on $d$ at 7 (days),
-- based on our exploration of different values of $\lambda$, we assign it higher probability at 0-3 with a $\mathcal{N}(0, 2)$ prior and restrict it to 5 (which is *very* steep -- indicating near-immediate change -- and much less likely).
-
-Categorical predictors such as days of the week and months are represented as random intercepts $\alpha$ in the model. For days of the week, there are $\alpha_1, \ldots, \alpha_7$ (representing Sunday--Monday). In case of search engine traffic, we have $\alpha_1, \ldots, \alpha_{12}$ to represent the months as random intercepts and $\beta_2, \ldots, \beta_7$ to represent the effect of days of the week (relative to Sunday so as to avoid the [dummy variable trap](https://en.wikipedia.org/wiki/Dummy_variable_(statistics)#Incorporating_a_dummy_independent)).[^complexity]
-
-[^complexity]: **Note**: we cannot model both days of the week and months as random intercepts unless we also model their interaction, which would increase the complexity of the model *quite a bit*. Since traffic from all recognized search engines was not the main point of interest, we chose the simpler model that we could still learn a lot from.
+Since $z_t$ can be expressed in terms of $\delta_0$ and $\omega_1$ ($|\omega_1| < 1$) as a [geometric series](https://en.wikipedia.org/wiki/Geometric_series) (see above), we can also calculate the long-term boost-due-to-sitemaps: $\lim_{t \to \infty} z_t = \frac{\delta_0}{1 - \omega_1}$.

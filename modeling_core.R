@@ -59,7 +59,6 @@ prepare_predictors <- function(N, xreg = NULL, creg = NULL, version = c(2, 3)) {
       message("Prepending a linear trend component")
       xreg <- cbind(t = 1:N, xreg)
     }
-    if (is.null(creg)) stop("creg must not be null")
     if (!class(creg) %in% c("Date", "POSIXct")) stop("creg must be Date or POSIXct")
     yd <- as.integer(lubridate::yday(creg))
     # adjust in case of leap years:
@@ -77,8 +76,7 @@ prepare_predictors <- function(N, xreg = NULL, creg = NULL, version = c(2, 3)) {
 }
 
 fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, creg = NULL, dates = NULL,
-                           n_chains = 4, stan_control = list(adapt_delta = 0.99),
-                           stan_iter = 2e3, stan_warmup = floor(stan_iter / 2),
+                           n_chains = 4, stan_control = list(adapt_delta = 0.99), stan_iter = 2e3,
                            ...) {
   # model_data is a list with components N, T, y
   if (!all(c("N", "T", "y") %in% names(model_data))) {
@@ -98,7 +96,7 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, c
     model_data$q <- q
   }
   model_uses_regression <- grepl("regressors", model_name)
-  reparameterized_model <- grepl("v[23]", model_name)
+  reparameterized_model <- grepl("\\(v[23]\\)", model_name)
   if (model_uses_regression) {
     message("Preparing predictor matrix/matrices")
     if (reparameterized_model) {
@@ -107,7 +105,6 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, c
         model_data$c <- regressors$c
         model_data$M <- regressors$M
       } else {
-        if (is.null(dates)) stop("v3 of the model requires dates")
         regressors <- prepare_predictors(N, xreg, dates, version = 3)
         model_data$yd <- regressors$yd
         model_data$D <- regressors$D
@@ -159,7 +156,7 @@ fit_stan_model <- function(model_name, p, q, model_data, fit_dir, xreg = NULL, c
   message("Starting MCMC sampling")
   fit <- sampling(
     stan_models[[model_name]], data = model_data,
-    control = stan_control, iter = stan_iter, warmup = stan_warmup,
+    control = stan_control, iter = stan_iter,
     chains = n_chains, init = initf
   )
   # Save samples and log marginal likelihoods:

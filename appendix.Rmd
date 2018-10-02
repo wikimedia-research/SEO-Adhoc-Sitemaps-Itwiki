@@ -10,93 +10,100 @@ output:
 ```{r appendix_setup, include=FALSE}
 library(knitr); library(kableExtra)
 opts_chunk$set(
-  echo = FALSE, message = FALSE, warning = FALSE
+  echo = FALSE, message = FALSE, warning = FALSE,
+  dev = "png", dpi = 600
 )
+opts_knit$set(out.format = "latex")
 options(knitr.table.format = "latex", scipen = 500, digits = 4)
-library(here); library(magrittr)
-refine_hpd <- function(hpd_summary) {
-  refined <- hpd_summary %>%
-    dplyr::mutate(
-      est = sprintf("%.3f (%.3f)", estimate, std.error),
-      ci95 = sprintf("(%.3f, %.3f)", conf.low, conf.high)
-    ) %>%
-    dplyr::select(-c(estimate, std.error, conf.low, conf.high))
-  return(refined)
-}
+library(here); library(magrittr); library(ggplot2)
+source(here("summarizing.R"))
 ```
-
 
 \section*{Appendix}
 
 ```{r appendix_model_summary}
-google_desktop_traffic_fit <- readr::read_rds(here("fits2", "fit_arma32r5ev2.rds"))
+search_engine_traffic_fit <- readr::read_rds(here("final", "fit_arma21r3ev3-longer.rds"))
 posterior_summary <- broom::tidyMCMC(
-  google_desktop_traffic_fit,
-  pars = c("delta0", "tau", "d", "lambda", "alpha_mean", "alpha_stddev", "alpha", "phi", "theta", "beta", "sigma"),
+  search_engine_traffic_fit,
+  pars = c("delta0", "omega1", "limz", "gamma_mean", "gamma", "phi", "theta", "beta"),
   estimate.method = "median", conf.int = TRUE, conf.method = "HPDinterval"
 )
 term_labels <- dplyr::data_frame(
-  term = c("delta0", "tau", "d", "lambda", "alpha_mean", "alpha_stddev",
-           paste0("alpha[", 1:7, "]"), paste0("phi[", 1:3, "]"), paste0("theta[", 1:2, "]"),
-           "beta[1]", "sigma"),
-  label = c("$\\delta_0$ (impact)", "$\\tau$", "$d$", "$\\lambda$", "$\\mu_\\alpha$ (daily average)", "$\\sigma_\\alpha$",
-           paste0("$\\alpha_", 1:7, "$ (",
-                  c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"), ")"),
-           paste0("$\\phi_", 1:3, "$"), paste0("$\\theta_", 1:2, "$"),
-           "$\\beta_1$ (linear trend over time)", "$\\sigma_\\epsilon$ (daily noise variability)")
+  term = c("delta0", "omega1", "limz", "gamma_mean",
+           paste0("gamma[", 1:12, "]"), paste0("phi[", 1:3, "]"), paste0("theta[", 1:2, "]"),
+           paste0("beta[", 1:7, "]")),
+  label = c("$\\delta_0$ (immediate impact)", "$\\omega_1$ (impact gradation)",
+            "$\\frac{\\delta_0}{1 - \\omega_1}$ (long-term impact)",
+            "$\\mu_\\gamma$ (daily average)",
+            paste0("$\\gamma_{", 1:12, "}$ (", month.name, " average)"),
+            paste0("$\\phi_", 1:3, "$"), paste0("$\\theta_", 1:2, "$"),
+            "$\\beta_1$ (linear trend over time)",
+            paste0("$\\beta_", 2:7, "$ (", c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"), ")")),
+  section = c(rep(1, 3), rep(2, 13), rep(4, 3), rep(5, 2), 6, rep(3, 6))
 )
 posterior_summary %>%
   dplyr::left_join(term_labels, by = "term") %>%
-  dplyr::select(-term, model = label) %>%
-  refine_hpd %>%
+  dplyr::arrange(section) %>%
+  dplyr::select(-c(term, section)) %>%
+  refine_hpd(4) %>%
   kable(
     align = c("l", "r", "c"), booktabs = TRUE, linesep = "", escape = FALSE,
     col.names = c("Parameter", "Estimate (Standard Error)", "95\\% HPD Interval"),
-    caption = "Estimates and confidence intervals for parameters in the model of desktop traffic to the Italian Wikipedia from Google. The model was fit to pageview counts \\emph{in millions}. For example, when reading the table, $\\alpha_1 = 1.461$ indicates 1.46M pageviews on average on Sunday."
+    caption = "Estimates and confidence intervals for parameters in the model of desktop traffic to the Italian Wikipedia from all recognized search engines The model was fit to pageview counts \\emph{in millions}. For example, when reading the table, $\\beta_2 = 0.56$ indicates more 560K pageviews on average on Monday relative to Sunday."
   ) %>%
   kable_styling(latex_options = c("striped", "hold_position")) %>%
   group_rows(index = c(
-    "Intervention effect as Gompertz function" = 4,
-    "Weekly seasonality as random intercepts" = 9,
-    "Autoregressive (AR) component" = 3,
-    "Moving average (MA) component" = 2,
-    "Linear regression component" = 2
+    "Intervention effect" = 3,
+    "Averages" = 13,
+    "Weekly seasonality (additive, relative to Sunday)" = 6,
+    "Autoregressive (AR) component" = sum(grepl("phi", posterior_summary$term)),
+    "Moving average (MA) component" = sum(grepl("theta", posterior_summary$term)),
+    "Other effects" = 1
   ))
 ```
 
+\newpage
+
 ```{r appendix_marginal_likelihoods}
 if (file.exists(here("fits_index.csv"))) fits <- readr::read_csv(here("fits_index.csv"))
-delta0_hpd <- readr::read_csv(here("results", "delta0_hpd.csv")) %>% refine_hpd
+delta0_hpd <- readr::read_csv(here("results", "delta0_hpd.csv")) %>%
+  refine_hpd %>% dplyr::select(-c(term, rhat))
+mse <- readr::read_csv(here("results", "mse.csv")) %>%
+  dplyr::group_by(model) %>%
+  dplyr::summarize(mse = sprintf("%.3f / %.3f", mse_before, mse_after)) %>%
+  dplyr::left_join(delta0_hpd, by = "model")
 marginal_likelihoods <- set_names(as.list(fits$lml_path), fits$model) %>%
   purrr::map(readr::read_rds) %>%
-  purrr::map_df(~ dplyr::data_frame(logL = .x$logml), .id = "Model") %>%
-  dplyr::mutate(post_prob = bridgesampling::post_prob(logL))
+  purrr::map_df(~ dplyr::data_frame(logL = .x$logml), .id = "model") %>%
+  dplyr::mutate(post_prob = bridgesampling::post_prob(logL)) %>%
+  dplyr::select(-logL)
 marginal_likelihoods %>%
   dplyr::mutate(post_prob = sprintf("%.3f%%", 100 * post_prob)) %>%
-  dplyr::left_join(delta0_hpd, by = "Model") %>%
+  dplyr::left_join(mse, by = "model") %>%
   dplyr::mutate_all(dplyr::funs(replace(., is.na(.), "--"))) %>%
   dplyr::mutate(
     change = factor(dplyr::case_when(
-      grepl("levelling-off", Model, fixed = TRUE) ~ 1,
-      grepl("Gompertz", Model) ~ 2,
+      grepl("levelling-off", model, fixed = TRUE) ~ 1,
+      grepl("Gompertz", model) ~ 2,
     ), 1:2, c("Gradual level-off", "Gompertz function")),
     intercept = factor(dplyr::case_when(
-      grepl("levelling-off", Model, fixed = TRUE) & grepl("(v2)", Model, fixed = TRUE) ~ 1,
-      grepl("levelling-off", Model) & grepl("(v3)", Model, fixed = TRUE) ~ 2,
-      grepl("Gompertz", Model) & grepl("(v2)", Model, fixed = TRUE) ~ 3,
+      grepl("levelling-off", model, fixed = TRUE) & grepl("(v2)", model, fixed = TRUE) ~ 1,
+      grepl("levelling-off", model) & grepl("(v3)", model, fixed = TRUE) ~ 2,
+      grepl("Gompertz", model) & grepl("(v2)", model, fixed = TRUE) ~ 3,
     ), 1:3, c("Month", "Day of year", "Month")),
-    Model = sub("w\\/.*", "", Model),
+    model = sub("w\\/.*", "", model),
   ) %>%
-  dplyr::select(Model, intercept, change, logL, post_prob, dplyr::everything()) %>%
-  dplyr::arrange(Model) %>%
+  dplyr::select(model, intercept, change, post_prob, mse, dplyr::everything()) %>%
+  dplyr::arrange(model, intercept, change) %>%
   kable(
     align = c("l", "l", "l", "r", "r", "r", "c"), booktabs = TRUE, linesep = "",
-    col.names = c("Time Series", "Intercept", "Change Model", "log L", "Pr(Model)", "Estimate (SE)", "95% CI"),
-    caption = "Comparison metrics -- log marginal likelihood and posterior model probability (probability of model given data) -- of various models of desktop traffic from search engines, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$. These were quickly fitted to aid model selection, so the estimates in the final model differ due to more extensive MCMC sampling for final inference."
+    col.names = c("Time Series", "Intercept", "Change Model", "Pr(Model|Data)", "MSE (Before/After)", "Estimate (SE)", "95% CI"),
+    caption = "Comparison metrics -- posterior model probability (probability of model given data) and mean squared error (MSE) of predictions before and after intervention (smaller is better) -- of various models of desktop traffic from search engines, with point estimate, standard error (SE), and 95\\% credible interval from the fitted models for intervention effect $\\delta_0$. These were quickly fitted to aid model selection, so the estimates in the final model differ due to more extensive MCMC sampling for final inference."
   ) %>%
   kable_styling(latex_options = c("striped", "hold_position")) %>%
   add_header_above(c(
     "Model Specification" = 3, "Model Metrics" = 2,
     "Intervention Effect ($\\\\delta_0$)" = 2
-  ), escape = FALSE)
+  ), escape = FALSE) %>%
+  landscape()
 ```

@@ -2,28 +2,39 @@
 source("summarizing.R")
 ```
 ```{r search_engine_traffic}
-search_engine_traffic_model <- "???"
-search_engine_traffic_fit <- readr::read_rds("test/fit_arma32r3ev3.rds")
+search_engine_traffic_model <- "ARMA(2,1) w/ levelling-off change & regressors (v3)"
+search_engine_traffic_fit <- readr::read_rds("final/fit_arma21r3ev3-longer.rds")
 ```
 
-The results presented here are from the best model (see predictive quality in Fig. 4) -- the one with the highest posterior probability of being the model given the data -- with the estimates and intervals in Table 1 based on MCMC samples from the [posterior distribution](https://en.wikipedia.org/wiki/Posterior_probability) of parameters given data. In the model of desktop traffic from search engines, the day-of-the-week intercepts $\alpha_1, \ldots, \alpha_{365}$ shared means $\gamma_1, \ldots, \gamma_{12}$ which in turn shared the mean $\mu_\gamma$, which we can use as an estimate of average daily traffic. Figure 5 shows the extracted effect of the sitemaps over time after they were submitted to the Google Search Console, while Table 2 in the Appendix lists the estimates of all parameters of the model. Figure 6 shows the estimates of average desktop traffic from search engines by month and day of the week, and we can see that... <!-- TODO: check this conclusion -->
+The results presented here are from the best model (see predictive quality in Fig. 4) -- the one with the highest posterior probability of being the model given the data -- with the estimates and intervals in Table 1 based on MCMC samples from the [posterior distribution](https://en.wikipedia.org/wiki/Posterior_probability) of parameters given data. In the model of desktop traffic from all recognized search engines, the day-of-the-week intercepts $\alpha_1, \ldots, \alpha_{365}$ shared means $\gamma_1, \ldots, \gamma_{12}$ which in turn shared the mean $\mu_\gamma$, which we can use as an estimate of average daily traffic. Figure 5 shows the extracted effect of the sitemaps over time after they were deployed and subsequently submitted to the Google Search Console, while Table 2 in the Appendix lists the estimates of the core parameters of the model, including the long-term effect. Figure 6 shows the estimates of average desktop traffic from search engines by month and day of the week. We can see, for example, that the model confirms February as the month with most traffic, August as the month with the least; and Mondays as the day of the week with most traffic, while Saturdays have significantly less traffic than all other days.
 
 ```{r posterior_samples}
 posterior_samples <- search_engine_traffic_fit %>%
-  broom::tidyMCMC(pars = c("delta0", "gamma_mean", "z"), estimate.method = "median",
+  broom::tidyMCMC(pars = c("delta0", "limz", "gamma_mean", "z"), estimate.method = "median",
                   conf.int = TRUE, conf.method = "HPDinterval", conf.level = 0.95) %>%
-    dplyr::mutate(date = as.Date(c(NA, NA, as.character(itwiki_pvs$date))))
+    dplyr::mutate(date = as.Date(c(NA, NA, NA, as.character(itwiki_pvs$date))))
+percent_change <- posterior_samples %>%
+  { .$estimate[.$term == "delta0"] / .$estimate[.$term == "gamma_mean"] } %>%
+  { sprintf("%.2f%%", 100 * .) }
+estimates <- dplyr::filter(posterior_samples, term %in% c("delta0", "limz", "gamma_mean")) %>%
+  dplyr::group_by(term) %>%
+  dplyr::summarize(
+    estimate = compress(1e6 * estimate),
+    ci95 = sprintf("%s--%s", compress(1e6 * conf.low), compress(1e6 * conf.high))
+  ) %>%
+  unlist
 posterior_samples %>%
-  dplyr::filter(term %in% c("delta0", "gamma_mean")) %>%
+  dplyr::filter(term %in% c("delta0", "gamma_mean", "limz")) %>%
   dplyr::group_by(term) %>%
   dplyr::summarize(
     estimate = sprintf("%s (%s)", compress(1e6 * estimate), compress(1e6 * std.error)),
     ci95 = sprintf("(%s, %s)", compress(1e6 * conf.low), compress(1e6 * conf.high))
   ) %>%
   dplyr::ungroup() %>%
-  dplyr::mutate(term = dplyr::if_else(
-    term == "delta0", "$\\delta_0$ (intervention effect)",
-    "$\\mu_\\gamma$ (average pageviews per day)"
+  dplyr::mutate(term = dplyr::case_when(
+    term == "delta0" ~ "$\\delta_0$ (immediate impact)",
+    term == "gamma_mean" ~ "$\\mu_\\gamma$ (average pageviews per day)",
+    term == "limz" ~ "$\\frac{\\delta_0}{1 - \\omega_1}$ (long-term impact)"
   )) %>%
   kable(
     booktabs = TRUE, escape = FALSE,
@@ -33,11 +44,13 @@ posterior_samples %>%
   kable_styling(latex_options = c("hold_position"))
 ```
 
-The effect of the sitemaps ($\delta_0$) has been found to be an additional XX pageviews (95% CI: ??--??), an increase of YY% from the daily average of ZZ. Based on these results, we recommend/don't recommend creating sitemaps for other wikis and submitting them to various search engines' webmaster tools, not just Google Search Console. Although Google accounts for 90% of all search engine-referred traffic[^seprop] and 92-94% in case of the Italian Wikipedia, we would still benefit from submitting them to Yahoo (3-4%) and Bing (2-3%) webmaster tools. <!-- TODO: change this based on results on final model -->
+The immediate effect of the sitemaps ($\delta_0$) has been found to be an additional `r estimates['estimate1']` pageviews (95% CI: `r estimates['ci951']`), an increase of `r percent_change` from the daily average of `r estimates['estimate2']` The long-term impact (see Methods section) is estimated to be `r estimates['estimate3']` (95% CI: `r estimates['ci953']`) pageviews per day. Based on these results, we recommend verifying with additional tests by creating/deploying sitemaps for a couple of other wikis -- while taking care to make sure there are no additional interventions which might leave an artifact in the dataset the way the Italian Wikipedia redirect has -- and submitting them to various search engines' webmaster tools, not just Google Search Console. Although Google accounts for 90% of all search engine-referred traffic[^seprop] and 92-94% in case of the Italian Wikipedia, we could still benefit from submitting them to Yahoo (3-4%) and Bing (2-3%) webmaster tools.
 
 [^seprop]: Source: https://discovery.wmflabs.org/external/#traffic_by_engine
 
-While an impact of almost XX pageviews appears quite impressive, the results warrant further, more rigorous testing. Specifically, the dataset we worked with had one major issue which can be easily overcome in further tests of sitemap impact: we did not have time to account for the redirect artifact in the model and which will not be an issue for other wikis.
+# Acknowledgements
+
+We would like to give a special thanks to [Tilman Bayer](https://wikimediafoundation.org/profile/tilman-bayer/), whose feedback and criticism immensely aided the analysis presented in this paper. We would also like to acknowledge the work of the [Wikimedia Cloud Services Team](https://wikitech.wikimedia.org/wiki/Help:Cloud_Services_Introduction), as much of the computation was done on a virtual machine hosted by [Cloud VPS](https://wikitech.wikimedia.org/wiki/Portal:Cloud_VPS).
 
 \clearpage
 
@@ -162,3 +175,44 @@ p2 <- search_engine_seasonality %>%
   theme(plot.caption = element_text(hjust = 0))
 p1 + p2 + plot_layout(ncol = 1)
 ```
+
+\clearpage
+
+\blandscape
+
+```{r dataviz_seasonality_annual, fig.width=10, fig.height=6, fig.cap="Estimates and confidence intervals from fitting the model with the daily, hierarchical random intercepts to search engine-referred desktop traffic, shown in black. Since each day in a given month is centered around the mean for that month, the estimates and confidence intervals of the month means are included and shown in pink.", out.extra=""}
+dates <- data.frame(date = seq(as.Date("2018-01-01"), as.Date("2018-12-31"), by = "day")) %>%
+  dplyr::mutate(yd = lubridate::yday(date), month = lubridate::month(date))
+month_marks <- dates %>%
+  dplyr::mutate(md = lubridate::mday(date)) %>%
+  dplyr::filter(md == 1)
+monthly_seasonality <- broom::tidyMCMC(
+  search_engine_traffic_fit, pars = "gamma",
+  estimate.method = "median", conf.int = TRUE, conf.method = "HPDinterval"
+) %>%
+  dplyr::mutate(month = as.numeric(sub("gamma\\[([0-9]{1,2})\\]", "\\1", term))) %>%
+  dplyr::left_join(dates, ., by = "month")
+annual_seasonality <- broom::tidyMCMC(
+  search_engine_traffic_fit, pars = "alpha",
+  estimate.method = "median", conf.int = TRUE, conf.method = "HPDinterval"
+) %>%
+  dplyr::mutate(yd = as.numeric(sub("alpha\\[([0-9]{1,3})\\]", "\\1", term))) %>%
+  dplyr::left_join(dates, by = "yd")
+monthly_seasonality %>%
+  ggplot(aes(x = date, y = 1e6 * estimate, ymin = 1e6 * conf.low, ymax = 1e6 * conf.high)) +
+  geom_vline(aes(xintercept = date), data = month_marks, linetype = "dashed", size = 0.25) +
+  geom_ribbon(alpha = 0.1, fill = "#F0027F") +
+  geom_line(color = "#F0027F", size = 1.1) +
+  geom_ribbon(data = annual_seasonality, alpha = 0.3, fill = "#7570b3") +
+  geom_line(data = annual_seasonality) +
+  scale_y_continuous(labels = compress) +
+  scale_x_date(date_breaks = "1 month", date_labels = "%d\n%b") +
+  labs(
+    x = "Day of year", y = "Pageviews",
+    title = "Average traffic to the Italian Wikipedia from all recognized search engines",
+    subtitle = "Per-day estimates from data collected since February 2016, with per-month estimates in pink"
+  ) +
+  wmf::theme_min(14)
+```
+
+\elandscape

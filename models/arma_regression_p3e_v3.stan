@@ -106,6 +106,7 @@ generated quantities {
   real noise[N];
   real z[N];
   real yhat[N];
+  real limz = delta0 / (1 - omega1);
   for (t in 1:N) {
     noise[t] = normal_rng(0, sigma);
     if (t >= T) {

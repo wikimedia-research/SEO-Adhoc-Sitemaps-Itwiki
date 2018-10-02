@@ -17,6 +17,16 @@ hpd_interval <- function(x, ...) {
   ))
 }
 
+refine_hpd <- function(hpd_summary, digits = 3) {
+  refined <- hpd_summary %>%
+    dplyr::mutate(
+      est = sprintf(glue::glue("%.{digits}f (%.{digits}f)"), estimate, std.error),
+      ci95 = sprintf(glue::glue("(%.{digits}f, %.{digits}f)"), conf.low, conf.high)
+    ) %>%
+    dplyr::select(-c(estimate, std.error, conf.low, conf.high))
+  return(refined)
+}
+
 summarize_predictions <- function(stan_fit) {
   output <- stan_fit %>%
     rstan::extract("yhat") %>%
@@ -27,6 +37,13 @@ summarize_predictions <- function(stan_fit) {
     magrittr::set_colnames(c("conf.low", "point.est", "conf.high")) %>%
     dplyr::mutate(day = 1:n())
   return(output)
+}
+
+calculate_mse <- function(stan_fit, model_data) {
+  squared_errors <- (model_data$y - summarize_predictions(stan_fit)$point.est) ^ 2
+  mse_before <- mean(squared_errors[7:(model_data$T)])
+  mse_after <- mean(squared_errors[(model_data$T + 1):model_data$N])
+  return(data.frame(mse_before = mse_before, mse_after = mse_after))
 }
 
 posterior_predictive_plot <- function(stan_fit, data, title,
