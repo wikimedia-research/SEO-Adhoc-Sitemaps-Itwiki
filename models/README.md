@@ -18,3 +18,6 @@ This is a repository of the Stan code for the various models explored during mod
   - [ARMA(p,q)](arma_p5e.stan)
   - [ARMA(p,q) w/ regressors](arma_regression_p5e.stan)
   - [ARMA(p,q) w/ regressors (v2)](arma_regression_p5e.stan): reparameterization with categorical predictors as random intercepts
+- ARMA models with instant, gradually levelling-off-modeled change and random intercepts
+  - [ARMA(p,q) w/ random intercepts](arma_regression_p3e_v2.stan)
+  - [ARMA(p,q) w/ hierarchical daily random intercepts sharing monthly mean which share global mean](arma_regression_p3e_v3.stan)
