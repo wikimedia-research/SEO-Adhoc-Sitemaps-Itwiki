@@ -67,7 +67,7 @@ For a few days in July 2018, all traffic that went to the Italian Wikipedia was 
 
 In this report, we present the results of Bayesian time series intervention analysis with hierarchical modeling to determine whether the deployment of the sitemaps had a positive impact on search engine-referred desktop traffic to the Italian Wikipedia, as measured by [pageviews](https://meta.wikimedia.org/wiki/Research:Page_view). Our statistical model employed an [autoregressive moving average component](https://en.wikipedia.org/wiki/Autoregressive%E2%80%93moving-average_model) for the time series with the change-due-to-intervention modeled as immediate, gradually levelling-off.
 
-Using the model, we estimated the effect of the sitemaps to be an additional 9.2K desktop pageviews (95% CI: -4.6K--31K) to the Italian Wikipedia from all recognized search engines, which would make it an increase of 0.74% from the average of 1.24M search engine-referred desktop pageviews per day. These initial results do not look particularly impressive or convincing. Granted, deploying the sitemaps to the Italian Wikipedia -- whose traffic from Google suffered a negative side-effect due to the copyright redirect -- makes the results potentially slightly unreliable due to the unmodeled artefact. Therefore, we recommend further tests by deploying on a couple of big and small wikis where there were no additional interventions leading up to the deployment of sitemaps. Such additional tests would enable us to identify with greater certainty whether the sitemaps help traffic, and whether smaller wikis would benefit more or less than bigger wikis.
+Using the model, we estimated the effect of the sitemaps to be an additional 9.2K desktop pageviews (95% CI: -4.6K--31K) to the Italian Wikipedia from all recognized search engines, which would make it an increase of 0.75% from the average of 1.24M search engine-referred desktop pageviews per day. These initial results do not look particularly impressive or convincing. Granted, deploying the sitemaps to the Italian Wikipedia -- whose traffic from Google suffered a negative side-effect due to the copyright redirect -- makes the results potentially slightly unreliable due to the unmodeled artefact. Therefore, we recommend further tests by deploying on a couple of big and small wikis where there were no additional interventions leading up to the deployment of sitemaps. Such additional tests would enable us to identify with greater certainty whether the sitemaps help traffic, and whether smaller wikis would benefit more or less than bigger wikis.
 
 \clearpage
 
@@ -103,7 +103,7 @@ p2 <- ggplot(
     aes(xintercept = date), linetype = "dashed",
     data = dplyr::filter(events, event == "sitemap deployment")
   ) +
-  scale_color_brewer(palette = "Set1") +
+  scale_color_manual(values = c("#2a4b8d", "#ac6600")) +
   scale_x_date(date_breaks = "6 months", date_minor_breaks = "1 month") +
   labs(
     x = "Date", y = "Pageviews (in millions)", color = "Access method",
@@ -120,7 +120,7 @@ itwiki_pageviews %>%
   dplyr::mutate(month = factor(month_abbreviations[month], month_abbreviations)) %>%
   ggplot(aes(x = month, y = pageviews, group = year, color = year)) +
   stat_summary(fun.y = mean, geom = "line", size = 1.1) +
-  scale_color_brewer(palette = "Set2") +
+  scale_color_manual(values = unname(wmf::colors_discrete(3))) +
   labs(
     x = "Month", y = "Pageviews (in millions)", color = "Year",
     title = "Average daily desktop traffic from search engines"

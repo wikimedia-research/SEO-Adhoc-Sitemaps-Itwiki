@@ -49,7 +49,7 @@ posterior_summary %>%
   kable(
     align = c("l", "r", "c"), booktabs = TRUE, linesep = "", escape = FALSE,
     col.names = c("Parameter", "Estimate (Standard Error)", "95\\% HPD Interval"),
-    caption = "Estimates and confidence intervals for parameters in the model of desktop traffic to the Italian Wikipedia from all recognized search engines The model was fit to pageview counts \\emph{in millions}. For example, when reading the table, $\\beta_2 = 0.56$ indicates more 560K pageviews on average on Monday relative to Sunday."
+    caption = "Estimates and confidence intervals for parameters in the model of desktop traffic to the Italian Wikipedia from all recognized search engines The model was fit to pageview counts \\emph{in millions}. For example, when reading the table, $\\beta_2 = 0.67$ indicates more 670K pageviews on average on Monday relative to Sunday."
   ) %>%
   kable_styling(latex_options = c("striped", "hold_position")) %>%
   group_rows(index = c(
